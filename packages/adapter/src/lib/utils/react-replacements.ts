@@ -1,4 +1,4 @@
-import { type ReplacementConfig } from './adapter.js';
+import { type ReplacementConfig } from '../domain/adapter-config.contract.js';
 
 export const reactReplacements: Record<string, Record<string, ReplacementConfig>> = {
   dev: {

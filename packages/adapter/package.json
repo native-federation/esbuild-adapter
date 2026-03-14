@@ -1,15 +1,12 @@
 {
   "name": "@softarc/native-federation-esbuild",
-  "version": "4.0.0-RC1",
+  "version": "4.0.0-RC8",
   "type": "module",
   "license": "MIT",
   "dependencies": {
-    "esbuild": "^0.19.2",
-    "@softarc/native-federation": "4.0.0-RC1",
-    "@rollup/plugin-node-resolve": "^16.0.3",
-    "acorn": "^8.15.0",
-    "rollup": "^4.56.0",
-    "rollup-plugin-node-externals": "^8.1.2"
+    "@chialab/esbuild-plugin-commonjs": "^0.19.1",
+    "acorn": "^8.16.0",
+    "@softarc/native-federation": "4.0.0-RC8"
   },
   "homepage": "https://github.com/native-federation/esbuild-adapter",
   "repository": {
