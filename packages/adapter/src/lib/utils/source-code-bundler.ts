@@ -27,6 +27,7 @@ export async function createSourceCodeEsbuildContext(
     sourcemap: dev,
     minify: !dev,
     format: 'esm',
+    splitting: false, // Todo: support splitting
     target: ['esnext'],
     platform,
     tsconfig: tsConfigPath,

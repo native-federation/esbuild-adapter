@@ -38,6 +38,7 @@ export async function createNodeModulesEsbuildContext(
     sourcemap: dev,
     minify: !dev,
     format: 'esm',
+    splitting: false, // Todo: support splitting
     platform,
     plugins: [commonjsPlugin()],
     define: {
