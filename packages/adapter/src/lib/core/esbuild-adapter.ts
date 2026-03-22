@@ -1,11 +1,12 @@
 import type {
   NFBuildAdapter,
+  NFBuildAdapterContext,
   NFBuildAdapterOptions,
   NFBuildAdapterResult,
 } from '@softarc/native-federation/domain';
 import { AbortedError } from '@softarc/native-federation/internal';
 import * as esbuild from 'esbuild';
-import type { EsBuildAdapterConfig, CachedBundleContext } from '../domain/adapter-config.contract.js';
+import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
 import { writeResult } from '../utils/write-result.js';
 import { createSourceCodeEsbuildContext } from '../utils/source-code-bundler.js';
 import { createNodeModulesEsbuildContext } from '../utils/node-modules-bundler.js';
@@ -15,7 +16,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
     config.compensateExports = [new RegExp('/react/')];
   }
 
-  const bundleContextCache = new Map<string, CachedBundleContext>();
+  const bundleContextCache = new Map<string, NFBuildAdapterContext<esbuild.BuildContext>>();
 
   const dispose = async (name?: string): Promise<void> => {
     if (name) {
@@ -40,7 +41,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
     await esbuild.stop();
   };
 
-  const setup = async (options: NFBuildAdapterOptions): Promise<void> => {
+  const setup = async (name: string, options: NFBuildAdapterOptions): Promise<void> => {
     const {
       entryPoints,
       external,
@@ -49,27 +50,17 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
       dev = false,
       platform = 'browser',
       tsConfigPath,
-      bundleName,
-      isNodeModules,
+      isMappingOrExposed,
     } = options;
 
-    if (bundleContextCache.has(bundleName)) {
+    if (bundleContextCache.has(name)) {
       return;
     }
 
     const esbuildPlatform = platform === 'node' ? 'node' : 'browser';
 
-    const ctx = isNodeModules
-      ? await createNodeModulesEsbuildContext(
-          entryPoints,
-          external,
-          outdir,
-          config,
-          dev,
-          hash,
-          esbuildPlatform
-        )
-      : await createSourceCodeEsbuildContext(
+    const ctx = isMappingOrExposed
+      ? await createSourceCodeEsbuildContext(
           entryPoints,
           external,
           outdir,
@@ -78,14 +69,23 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
           hash,
           esbuildPlatform,
           tsConfigPath
+        )
+      : await createNodeModulesEsbuildContext(
+          entryPoints,
+          external,
+          outdir,
+          config,
+          dev,
+          hash,
+          esbuildPlatform
         );
 
-    bundleContextCache.set(bundleName, {
+    bundleContextCache.set(name, {
       ctx,
       outdir,
       dev,
-      name: bundleName,
-      isNodeModules,
+      name,
+      isMappingOrExposed,
     });
   };
 
@@ -106,7 +106,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
       const result = await bundleContext.ctx.rebuild();
       const writtenFiles = writeResult(result, bundleContext.outdir);
 
-      return writtenFiles.map((fileName) => ({ fileName }));
+      return writtenFiles.map(fileName => ({ fileName }));
     } catch (error) {
       if (opts?.signal?.aborted && error instanceof Error && error.message.includes('canceled')) {
         throw new AbortedError('[build] ESBuild rebuild was canceled.');
