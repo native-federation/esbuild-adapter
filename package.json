@@ -7,10 +7,10 @@
   "private": true,
   "devDependencies": {
     "@eslint/js": "^9.39.1",
-    "@nx/esbuild": "~22.5.0",
-    "@nx/js": "~22.5.0",
-    "@nx/vite": "~22.5.0",
-    "@nx/web": "~22.5.0",
+    "@nx/esbuild": "~22.6.0",
+    "@nx/js": "~22.6.0",
+    "@nx/vite": "~22.6.0",
+    "@nx/web": "~22.6.0",
     "@playwright/test": "^1.56.1",
     "@swc-node/register": "~1.11.1",
     "@swc/core": "~1.15.17",
@@ -21,13 +21,13 @@
     "@vitest/browser": "^4.0.0",
     "@vitest/coverage-v8": "^4.0.0",
     "@vitest/ui": "^4.0.0",
-    "esbuild": "^0.27.0",
+    "esbuild": "^0.28.0",
     "eslint": "^9.39.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
     "globals": "^17.3.0",
-    "jsdom": "^28.1.0",
-    "nx": "~22.5.0",
+    "jsdom": "^29.0.0",
+    "nx": "~22.6.0",
     "prettier": "^3.8.1",
     "tslib": "^2.3.0",
     "typescript": "~5.9.2",
@@ -42,7 +42,7 @@
   "dependencies": {
     "@chialab/esbuild-plugin-commonjs": "^0.19.1",
     "acorn": "^8.16.0",
-    "@softarc/native-federation": "4.0.0-RC9"
+    "@softarc/native-federation": "4.0.0"
   },
   "nx": {
     "includedScripts": []

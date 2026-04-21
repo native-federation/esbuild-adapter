@@ -19,6 +19,7 @@ export async function createSourceCodeEsbuildContext(
       out: path.parse(ep.outName).name,
     })),
     write: false,
+    metafile: true,
     outdir,
     entryNames: hash ? '[name]-[hash]' : '[name]',
     external,
