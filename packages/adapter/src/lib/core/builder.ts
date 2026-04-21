@@ -27,6 +27,7 @@ import { normalizeBuilderOptions } from './normalize-options.js';
 
 export interface EsBuildBuilder {
   federationInfo: FederationInfo;
+  externals: string[];
   options: NormalizedEsBuildBuilderOptions;
   close(): Promise<void>;
 }
@@ -61,7 +62,6 @@ export async function runEsBuildBuilder(
   );
 
   const externals = getExternals(normalized.config);
-  const shouldWatch = options.dev || options.watch;
 
   let federationInfo: FederationInfo;
   try {
@@ -72,9 +72,10 @@ export async function runEsBuildBuilder(
     throw error;
   }
 
-  if (!shouldWatch) {
+  if (!options.watch) {
     return {
       federationInfo,
+      externals,
       options,
       close: () => adapter.dispose(),
     };
@@ -82,35 +83,29 @@ export async function runEsBuildBuilder(
 
   const rebuildQueue = new RebuildQueue();
   const pendingChanges = new Set<string>();
-  let scheduled: NodeJS.Timeout | null = null;
   let closed = false;
 
   const watcher: NfFileWatcher = createNfWatcher({
     onChange: changedPath => {
+      if (closed) return;
       pendingChanges.add(changedPath);
-      scheduleRebuild();
+      void triggerRebuild();
     },
   });
 
   syncNfFileWatcher(watcher, bundlerCache);
 
-  function scheduleRebuild(): void {
-    if (closed || scheduled) return;
-    scheduled = setTimeout(runRebuild, Math.max(10, options.rebuildDelay));
-  }
-
-  async function runRebuild(): Promise<void> {
-    scheduled = null;
-    if (closed) return;
-
-    const files = [...pendingChanges];
-    pendingChanges.clear();
-
-    const trackResult = await rebuildQueue.track(async signal => {
+  async function triggerRebuild(): Promise<void> {
+    await rebuildQueue.track(async signal => {
       try {
+        await abortableDelay(Math.max(10, options.rebuildDelay), signal);
+
         if (signal.aborted) {
           throw new AbortedError('[builder] Aborted before rebuild');
         }
+
+        const files = [...pendingChanges];
+        pendingChanges.clear();
 
         federationInfo = await rebuildForFederation(
           normalized.config,
@@ -133,26 +128,33 @@ export async function runEsBuildBuilder(
         return { success: false };
       }
     });
-
-    if (trackResult.type === 'completed' && !trackResult.result.cancelled && pendingChanges.size) {
-      scheduleRebuild();
-    }
   }
 
   return {
     get federationInfo() {
       return federationInfo;
     },
+    externals,
     options,
     async close() {
       closed = true;
-      if (scheduled) {
-        clearTimeout(scheduled);
-        scheduled = null;
-      }
       rebuildQueue.dispose();
       await watcher.close();
       await adapter.dispose();
     },
   };
+}
+
+function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timeout);
+        reject(new AbortedError('[builder] Debounce canceled'));
+      },
+      { once: true }
+    );
+  });
 }
