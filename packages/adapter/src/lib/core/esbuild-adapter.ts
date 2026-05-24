@@ -10,10 +10,12 @@ import type { CachedContext, EsbuildBundlerCache } from '../domain/adapter-conte
 import { writeResult } from '../utils/write-result.js';
 import { createSourceCodeEsbuildContext } from '../utils/source-code-bundler.js';
 import { createNodeModulesEsbuildContext } from '../utils/node-modules-bundler.js';
+import { reactFrameworkPlugin } from '../frameworks/react.js';
+import { resolveFrameworkConfig } from './resolve-framework-config.js';
 
 export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapter {
-  if (!config.compensateExports) {
-    config.compensateExports = [new RegExp('/react/')];
+  if (!config.frameworks) {
+    config.frameworks = [reactFrameworkPlugin()];
   }
 
   const bundleContextCache = new Map<string, CachedContext>();
@@ -66,7 +68,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
           entryPoints,
           external,
           outdir,
-          config,
+          resolveFrameworkConfig(config, dev, ['.ts', '.tsx', '.mjs', '.js', '.cjs']),
           dev,
           hash,
           esbuildPlatform,
@@ -76,7 +78,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
           entryPoints,
           external,
           outdir,
-          config,
+          resolveFrameworkConfig(config, dev, ['.mjs', '.js', '.cjs']),
           dev,
           hash,
           esbuildPlatform

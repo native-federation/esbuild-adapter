@@ -5,7 +5,6 @@
   "license": "MIT",
   "dependencies": {
     "@chialab/esbuild-plugin-commonjs": "^0.19.1",
-    "acorn": "^8.16.0",
     "@softarc/native-federation": "~4.0.0"
   },
   "homepage": "https://github.com/native-federation/esbuild-adapter",
@@ -24,6 +23,16 @@
       "types": "./src/config.d.ts",
       "import": "./src/config.js",
       "default": "./src/config.js"
+    },
+    "./domain": {
+      "types": "./src/domain.d.ts",
+      "import": "./src/domain.js",
+      "default": "./src/domain.js"
+    },
+    "./frameworks/react": {
+      "types": "./src/lib/frameworks/react.d.ts",
+      "import": "./src/lib/frameworks/react.js",
+      "default": "./src/lib/frameworks/react.js"
     }
   },
   "files": [

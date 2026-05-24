@@ -1,3 +1,4 @@
+import type { NfFrameworkPlugin } from '../domain/framework-plugin.contract.js';
 import { type ReplacementConfig } from '../domain/adapter-config.contract.js';
 
 export const reactReplacements: Record<string, Record<string, ReplacementConfig>> = {
@@ -30,3 +31,14 @@ export const reactReplacements: Record<string, Record<string, ReplacementConfig>
     },
   },
 };
+
+export function reactFrameworkPlugin(): NfFrameworkPlugin {
+  return {
+    name: 'react',
+    fileReplacements: {
+      dev: reactReplacements.dev,
+      prod: reactReplacements.prod,
+    },
+    needsCommonJsPlugin: true,
+  };
+}
