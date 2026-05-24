@@ -25,6 +25,11 @@
       "import": "./src/config.js",
       "default": "./src/config.js"
     },
+    "./domain": {
+      "types": "./src/domain.d.ts",
+      "import": "./src/domain.js",
+      "default": "./src/domain.js"
+    },
     "./frameworks/react": {
       "types": "./src/lib/frameworks/react.d.ts",
       "import": "./src/lib/frameworks/react.js",
