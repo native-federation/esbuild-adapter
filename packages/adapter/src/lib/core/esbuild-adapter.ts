@@ -17,9 +17,6 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
   if (!config.frameworks) {
     config.frameworks = [reactFrameworkPlugin()];
   }
-  if (!config.compensateExports) {
-    config.compensateExports = config.frameworks.flatMap(fw => fw.compensateExports ?? []);
-  }
 
   const bundleContextCache = new Map<string, CachedContext>();
 

@@ -7,7 +7,6 @@ import type {
 export interface ResolvedFrameworkConfig {
   plugins: esbuild.Plugin[];
   fileReplacements?: Record<string, string | ReplacementConfig>;
-  compensateExports: RegExp[];
   loader?: Record<string, esbuild.Loader>;
   resolveExtensions: string[];
   needsCommonJsPlugin: boolean;
@@ -21,7 +20,6 @@ export function resolveFrameworkConfig(
   const frameworks = config.frameworks ?? [];
 
   const frameworkReplacements: Record<string, string | ReplacementConfig> = {};
-  const frameworkCompensate: RegExp[] = [];
   const frameworkLoader: Record<string, esbuild.Loader> = {};
   const frameworkExtensions: string[] = [];
   const frameworkPlugins: esbuild.Plugin[] = [];
@@ -30,7 +28,6 @@ export function resolveFrameworkConfig(
   for (const fw of frameworks) {
     const modeReplacements = dev ? fw.fileReplacements?.dev : fw.fileReplacements?.prod;
     if (modeReplacements) Object.assign(frameworkReplacements, modeReplacements);
-    if (fw.compensateExports) frameworkCompensate.push(...fw.compensateExports);
     if (fw.loader) Object.assign(frameworkLoader, fw.loader);
     if (fw.resolveExtensions) frameworkExtensions.push(...fw.resolveExtensions);
     if (fw.esbuildPlugins) frameworkPlugins.push(...fw.esbuildPlugins);
@@ -55,7 +52,6 @@ export function resolveFrameworkConfig(
   return {
     plugins: [...frameworkPlugins, ...config.plugins],
     fileReplacements: Object.keys(mergedReplacements).length ? mergedReplacements : undefined,
-    compensateExports: [...frameworkCompensate, ...(config.compensateExports ?? [])],
     loader: Object.keys(mergedLoader).length ? mergedLoader : undefined,
     resolveExtensions: mergedExtensions,
     needsCommonJsPlugin,

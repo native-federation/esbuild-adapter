@@ -63,7 +63,7 @@ createEsBuildAdapter({
 });
 ```
 
-You can combine multiple plugins; their contributions are merged, with your own top-level `EsBuildAdapterConfig` keys (`plugins`, `fileReplacements`, `compensateExports`, `loader`) taking precedence over what a plugin supplies.
+You can combine multiple plugins; their contributions are merged, with your own top-level `EsBuildAdapterConfig` keys (`plugins`, `fileReplacements`, `loader`) taking precedence over what a plugin supplies.
 
 ### Plugin contract
 
@@ -71,7 +71,6 @@ You can combine multiple plugins; their contributions are merged, with your own 
 | --- | --- | --- |
 | `name` | `string` | Identifier for the framework — useful for logs/debugging. |
 | `fileReplacements` | `{ dev?, prod? }` | Maps of `<source path> → <replacement file>` applied to node-module entry points. The right map is picked automatically based on the build's `dev` flag. |
-| `compensateExports` | `RegExp[]` | Patterns merged into `config.compensateExports`. |
 | `resolveExtensions` | `string[]` | Extra esbuild `resolveExtensions` (e.g. `['.vue']`). Merged with the adapter's defaults. |
 | `loader` | `Record<string, esbuild.Loader>` | Esbuild loader overrides. Merged with `config.loader`; user entries win. |
 | `esbuildPlugins` | `esbuild.Plugin[]` | Framework-specific esbuild plugins (e.g. `esbuild-plugin-vue3`). Prepended to `config.plugins`. |

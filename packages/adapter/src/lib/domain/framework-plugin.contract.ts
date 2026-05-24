@@ -9,7 +9,6 @@ export interface NfFrameworkPluginReplacements {
 export interface NfFrameworkPlugin {
   name: string;
   fileReplacements?: NfFrameworkPluginReplacements;
-  compensateExports?: RegExp[];
   resolveExtensions?: string[];
   loader?: Record<string, esbuild.Loader>;
   esbuildPlugins?: esbuild.Plugin[];

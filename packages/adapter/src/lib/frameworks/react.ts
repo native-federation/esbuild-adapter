@@ -39,7 +39,6 @@ export function reactFrameworkPlugin(): NfFrameworkPlugin {
       dev: reactReplacements.dev,
       prod: reactReplacements.prod,
     },
-    compensateExports: [/\/react\//],
     needsCommonJsPlugin: true,
   };
 }
