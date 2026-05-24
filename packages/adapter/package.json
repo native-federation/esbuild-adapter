@@ -24,6 +24,11 @@
       "types": "./src/config.d.ts",
       "import": "./src/config.js",
       "default": "./src/config.js"
+    },
+    "./frameworks/react": {
+      "types": "./src/lib/frameworks/react.d.ts",
+      "import": "./src/lib/frameworks/react.js",
+      "default": "./src/lib/frameworks/react.js"
     }
   },
   "files": [

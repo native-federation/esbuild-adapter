@@ -1,13 +1,14 @@
 import * as esbuild from 'esbuild';
 import * as path from 'path';
 import type { EntryPoint } from '@softarc/native-federation/domain';
-import type { EsBuildAdapterConfig, ReplacementConfig } from '../domain/adapter-config.contract.js';
+import type { ReplacementConfig } from '../domain/adapter-config.contract.js';
+import type { ResolvedFrameworkConfig } from '../core/resolve-framework-config.js';
 
 export async function createNodeModulesEsbuildContext(
   entryPoints: EntryPoint[],
   external: string[],
   outdir: string,
-  config: EsBuildAdapterConfig,
+  config: ResolvedFrameworkConfig,
   dev: boolean,
   hash: boolean,
   platform: 'browser' | 'node'
@@ -22,8 +23,11 @@ export async function createNodeModulesEsbuildContext(
     }
   }
 
-  const commonjsPluginModule = await import('@chialab/esbuild-plugin-commonjs');
-  const commonjsPlugin = commonjsPluginModule.default;
+  const plugins: esbuild.Plugin[] = [...config.plugins];
+  if (config.needsCommonJsPlugin) {
+    const commonjsPluginModule = await import('@chialab/esbuild-plugin-commonjs');
+    plugins.unshift(commonjsPluginModule.default());
+  }
 
   return esbuild.context({
     entryPoints: entryPoints.map((ep) => ({
@@ -40,11 +44,12 @@ export async function createNodeModulesEsbuildContext(
     format: 'esm',
     splitting: false, // Todo: support splitting
     platform,
-    plugins: [commonjsPlugin()],
+    plugins,
+    loader: config.loader,
     define: {
       'process.env.NODE_ENV': `"${env}"`,
     },
-    resolveExtensions: ['.mjs', '.js', '.cjs'],
+    resolveExtensions: config.resolveExtensions,
   });
 }
 

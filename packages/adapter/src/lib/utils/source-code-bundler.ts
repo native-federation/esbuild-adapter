@@ -1,13 +1,13 @@
 import * as esbuild from 'esbuild';
 import * as path from 'path';
 import type { EntryPoint } from '@softarc/native-federation/domain';
-import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
+import type { ResolvedFrameworkConfig } from '../core/resolve-framework-config.js';
 
 export async function createSourceCodeEsbuildContext(
   entryPoints: EntryPoint[],
   external: string[],
   outdir: string,
-  config: EsBuildAdapterConfig,
+  config: ResolvedFrameworkConfig,
   dev: boolean,
   hash: boolean,
   platform: 'browser' | 'node',
@@ -33,6 +33,6 @@ export async function createSourceCodeEsbuildContext(
     platform,
     tsconfig: tsConfigPath,
     plugins: [...config.plugins],
-    resolveExtensions: ['.ts', '.tsx', '.mjs', '.js', '.cjs'],
+    resolveExtensions: config.resolveExtensions,
   });
 }
