@@ -7,6 +7,9 @@ export function writeResult(
   outdir: string
 ): string[] {
   const outputFiles = result.outputFiles || [];
+  if (outputFiles.length > 0) {
+    fs.mkdirSync(outdir, { recursive: true });
+  }
   const writtenFiles: string[] = [];
   for (const outFile of outputFiles) {
     const fileName = path.basename(outFile.path);
