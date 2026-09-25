@@ -1,25 +1,32 @@
-# native-federation-esbuild
+# @softarc/native-federation-esbuild
 
-As Native Federation is tooling agnostic, we need an adapter to make it work with specific build tools. This library contains such an adapter for esbuild.
+[![npm version](https://img.shields.io/npm/v/@softarc/native-federation-esbuild)](https://www.npmjs.com/package/@softarc/native-federation-esbuild)
+[![npm downloads](https://img.shields.io/npm/dm/@softarc/native-federation-esbuild)](https://www.npmjs.com/package/@softarc/native-federation-esbuild)
+[![license](https://img.shields.io/npm/l/@softarc/native-federation-esbuild)](https://github.com/native-federation/esbuild-adapter/blob/main/LICENSE.md)
 
-## Examples
+The esbuild adapter for **Native Federation**: the mental model of Module Federation, implemented on browser standards (ES modules and import maps) for Micro Frontends and plugin-based architectures.
 
-Find an example repository here: https://github.com/Aukevanoost/native-federation-examples-react/
+📖 **[Documentation](https://native-federation.com/docs/v4/adapters/esbuild/)**
 
-## Installation
+> [!NOTE]
+> This is **v4**. Upgrading? See the [migration guide](https://native-federation.com/docs/v4/migration/). On Angular? Use the [Angular adapter](https://native-federation.com/docs/v4/angular-adapter/) instead.
 
-`@softarc/native-federation` is a peer dependency, so install it next to the adapter:
+## Features
 
-```sh
+- **Framework-agnostic** — plugs the [core builder](https://native-federation.com/docs/v4/core/) into esbuild for React, Preact, Lit or plain TypeScript; no CLI wrapper or framework coupling.
+- **Framework presets** — per-framework esbuild settings (file replacements, loaders, `resolveExtensions`, CommonJS interop) as plugins. A React preset ships built-in.
+- **CommonJS just works** — shared CJS dependencies go through `@chialab/esbuild-plugin-commonjs` when a preset asks for it.
+- **Watch mode** — a debounced, cancellable rebuild queue that only re-bundles what changed.
+
+## Quick start
+
+Install the adapter next to its peer dependency, core:
+
+```bash
 npm i -D @softarc/native-federation @softarc/native-federation-esbuild
 ```
 
-## Federation config
-
-Write your `federation.config.mjs` with core's `@softarc/native-federation/config`. The adapter's
-`/config` entry only adds what is esbuild-specific: `ESBUILD_SKIP_LIST` extends core's
-`DEFAULT_SKIP_LIST` with this package's own entry points. For React, use `REACT_SKIP_LIST` from
-the React preset, which also skips react-dom's server, static, test-utils and profiling builds:
+Describe what the application shares and exposes in `federation.config.mjs`:
 
 ```js
 import { withNativeFederation, shareAll } from '@softarc/native-federation/config';
@@ -35,74 +42,45 @@ export default withNativeFederation({
 });
 ```
 
-## Framework plugins
+Then drive the build from a small script:
 
-The adapter is framework-agnostic. Framework-specific behaviour — file replacements (e.g. React's `cjs/*.development.js` vs `cjs/*.production.min.js`), esbuild plugins for non-JS sources, extra `resolveExtensions`, and the CommonJS interop plugin — is supplied through **framework plugins** that you pass to the adapter.
+```js
+import { runEsBuildBuilder } from '@softarc/native-federation-esbuild';
 
-### Using the React preset
+const dev = process.argv.includes('--dev');
 
-A React preset ships with the package. If you pass no `frameworks`, it is applied by default, so existing setups keep working unchanged:
-
-```ts
-import { createEsBuildAdapter } from '@softarc/native-federation-esbuild';
-import { reactFrameworkPlugin } from '@softarc/native-federation-esbuild/frameworks/react';
-
-createEsBuildAdapter({
-  plugins: [],
-  frameworks: [reactFrameworkPlugin()], // optional — same as the default
+const federation = await runEsBuildBuilder('federation.config.mjs', {
+  outputPath: 'dist',
+  tsConfig: 'tsconfig.json',
+  entryPoints: ['src/component.tsx'],
+  dev,
+  watch: dev,
 });
+
+if (!dev) await federation.close();
 ```
 
-### Disabling all framework presets
+The resulting `remoteEntry.json` is loaded at runtime by the [orchestrator](https://native-federation.com/docs/v4/orchestrator/). The [Getting Started](https://native-federation.com/docs/v4/adapters/esbuild/getting-started/) guide walks through a complete React remote and host page, and the [playground](https://github.com/native-federation/playground) has runnable examples.
 
-Pass an empty array to opt out of all framework defaults (including React):
+## Documentation
 
-```ts
-createEsBuildAdapter({
-  plugins: [],
-  frameworks: [],
-});
-```
+- [Builder](https://native-federation.com/docs/v4/adapters/esbuild/builder/) — `runEsBuildBuilder`, every `EsBuildBuilderOptions` field and the lower-level `createEsBuildAdapter`
+- [Adapter configuration](https://native-federation.com/docs/v4/adapters/esbuild/configuration/) — esbuild `plugins`, `frameworks` presets, `fileReplacements` and `loader`
+- [React & CommonJS interop](https://native-federation.com/docs/v4/adapters/esbuild/react-interop/) — the React preset, the CJS plugin and the Shadow-DOM custom-element pattern
+- [Core configuration](https://native-federation.com/docs/v4/core/configuration/) and [sharing dependencies](https://native-federation.com/docs/v4/core/sharing/)
+- [Mental model](https://native-federation.com/docs/v4/mental-model/)
+- [FAQ](https://native-federation.com/docs/v4/faq/)
 
-### Writing a framework plugin
+Using an AI coding assistant? Point it at [`llms.txt`](https://native-federation.com/llms.txt).
 
-A framework plugin is a plain object implementing `NfFrameworkPlugin`:
+## Contributing
 
-```ts
-import type { NfFrameworkPlugin } from '@softarc/native-federation-esbuild';
-import vuePlugin from 'esbuild-plugin-vue3';
+Issues and pull requests are welcome — see [CONTRIBUTING.md](https://github.com/native-federation/esbuild-adapter/blob/main/CONTRIBUTING.md).
 
-export function vueFrameworkPlugin(): NfFrameworkPlugin {
-  return {
-    name: 'vue',
-    esbuildPlugins: [vuePlugin()],
-    resolveExtensions: ['.vue'],
-    // No CJS interop needed for Vue 3
-    needsCommonJsPlugin: false,
-  };
-}
-```
+## Credits
 
-Pass it to the adapter the same way as React:
+Big thanks to [Zack Jackson](https://twitter.com/ScriptedAlchemy) for originally coming up with Module Federation and its mental model, and to [Florian Rappl](https://twitter.com/FlorianRappl) and the [Angular Architects team](https://www.angulararchitects.io/en/) for their feedback and contributions. Find the current team behind native-federation on our [documentation website](https://native-federation.com/team/).
 
-```ts
-createEsBuildAdapter({
-  plugins: [],
-  frameworks: [vueFrameworkPlugin()],
-});
-```
+## License
 
-You can combine multiple plugins; their contributions are merged, with your own top-level `EsBuildAdapterConfig` keys (`plugins`, `fileReplacements`, `loader`) taking precedence over what a plugin supplies.
-
-### Plugin contract
-
-| Field | Type | Purpose |
-| --- | --- | --- |
-| `name` | `string` | Identifier for the framework — useful for logs/debugging. |
-| `fileReplacements` | `{ dev?, prod? }` | Maps of `<source path> → <replacement file>` applied to node-module entry points. The right map is picked automatically based on the build's `dev` flag. |
-| `resolveExtensions` | `string[]` | Extra esbuild `resolveExtensions` (e.g. `['.vue']`). Merged with the adapter's defaults. |
-| `loader` | `Record<string, esbuild.Loader>` | Esbuild loader overrides. Merged with `config.loader`; user entries win. |
-| `esbuildPlugins` | `esbuild.Plugin[]` | Framework-specific esbuild plugins (e.g. `esbuild-plugin-vue3`). Prepended to `config.plugins`. |
-| `needsCommonJsPlugin` | `boolean` | Set to `true` when the framework's runtime ships CJS (React). Triggers the CommonJS interop plugin for the node-modules bundler. |
-
-All fields except `name` are optional.
+[MIT](https://github.com/native-federation/esbuild-adapter/blob/main/LICENSE.md)
