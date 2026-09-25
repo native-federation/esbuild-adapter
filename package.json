@@ -19,11 +19,14 @@
   },
   "dependencies": {
     "@chialab/esbuild-plugin-commonjs": "^0.19.1",
-    "@softarc/native-federation": "~4.7.0",
     "esbuild": "^0.28.2"
+  },
+  "peerDependencies": {
+    "@softarc/native-federation": "~4.7.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@softarc/native-federation": "~4.7.0",
     "@types/node": "~24.10.15",
     "@vitest/coverage-v8": "^4.1.11",
     "@vitest/ui": "^4.1.11",
