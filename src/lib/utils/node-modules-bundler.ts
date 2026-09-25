@@ -11,6 +11,7 @@ export async function createNodeModulesEsbuildContext(
   config: ResolvedFrameworkConfig,
   dev: boolean,
   hash: boolean,
+  chunks: boolean,
   platform: 'browser' | 'node'
 ): Promise<esbuild.BuildContext> {
   const env = dev ? 'development' : 'production';
@@ -42,7 +43,7 @@ export async function createNodeModulesEsbuildContext(
     sourcemap: dev,
     minify: !dev,
     format: 'esm',
-    splitting: false, // Todo: support splitting
+    splitting: chunks,
     platform,
     plugins,
     loader: config.loader,

@@ -57,6 +57,29 @@ function createFixture(root: string): void {
     ].join('\n')
   );
 
+  // Two exposes importing the same module, so esbuild has something to split out.
+  write('src/common.ts', `export const shout = (s: string) => s.toUpperCase() + '!!!';\n`);
+  write('src/a.ts', `import { shout } from './common';\nexport const a = () => shout('a');\n`);
+  write('src/b.ts', `import { shout } from './common';\nexport const b = () => shout('b');\n`);
+  for (const [file, options] of [
+    ['federation.no-chunks.config.mjs', `chunks: false,`],
+    ['federation.chunks.config.mjs', `chunks: true, features: { denseChunking: true },`],
+  ] as const) {
+    write(
+      file,
+      [
+        `import { withNativeFederation } from '@softarc/native-federation/config';`,
+        `export default withNativeFederation({`,
+        `  name: 'chunked',`,
+        `  exposes: { './a': './src/a.ts', './b': './src/b.ts' },`,
+        `  shared: {},`,
+        `  ${options}`,
+        `});`,
+        '',
+      ].join('\n')
+    );
+  }
+
   // federation.config.mjs imports core; link the adapter's copy so it resolves from the tmp dir.
   const require = createRequire(import.meta.url);
   const corePkg = path.dirname(require.resolve('@softarc/native-federation/package.json'));
@@ -121,5 +144,57 @@ describe('runEsBuildBuilder', () => {
     expect(exposedCode).toMatch(/from\s*["']tiny-dep["']/);
     expect(exposedCode).toMatch(/from\s*["']@fixture\/ui["']/);
     expect(exposedCode).not.toContain('hello ');
+  });
+
+  const build = async (federationConfig: string, outputPath: string) => {
+    const builder = await runEsBuildBuilder(federationConfig, {
+      workspaceRoot: root,
+      outputPath,
+      cachePath: `node_modules/.cache/${outputPath}`,
+      tsConfig: 'tsconfig.json',
+      adapterConfig: { plugins: [], frameworks: [] },
+    });
+    await builder.close();
+    const outDir = path.join(root, outputPath);
+    const remoteEntry = JSON.parse(
+      fs.readFileSync(path.join(outDir, 'remoteEntry.json'), 'utf-8')
+    ) as FederationInfo;
+    const jsFiles = fs.readdirSync(outDir).filter(f => f.endsWith('.js'));
+    return { outDir, remoteEntry, jsFiles };
+  };
+
+  it('inlines shared code into every expose when chunks is off', async () => {
+    const { outDir, remoteEntry, jsFiles } = await build(
+      'federation.no-chunks.config.mjs',
+      'dist-no-chunks'
+    );
+
+    expect(remoteEntry.chunks).toBeUndefined();
+    expect(jsFiles.sort()).toEqual(remoteEntry.exposes.map(e => e.outFileName).sort());
+    for (const exposed of remoteEntry.exposes) {
+      expect(fs.readFileSync(path.join(outDir, exposed.outFileName), 'utf-8')).toContain('!!!');
+    }
+  });
+
+  it('splits shared code into a chunk that remoteEntry.json lists when chunks is on', async () => {
+    const { outDir, remoteEntry, jsFiles } = await build(
+      'federation.chunks.config.mjs',
+      'dist-chunks'
+    );
+
+    // 'mapping-or-exposed' is core's bundle name for the exposes build.
+    const chunks = remoteEntry.chunks?.['mapping-or-exposed'];
+    expect(chunks).toHaveLength(1);
+    const [chunk] = chunks!;
+    expect(jsFiles).toContain(chunk);
+    expect(fs.readFileSync(path.join(outDir, chunk!), 'utf-8')).toContain('!!!');
+
+    // Core rewrites the bundler's './chunk-x.js' import to the import-map key for the chunk.
+    const chunkImport = '@nf-internal/' + chunk!.replace(/\.js$/, '');
+    for (const exposed of remoteEntry.exposes) {
+      const code = fs.readFileSync(path.join(outDir, exposed.outFileName), 'utf-8');
+      expect(code).not.toContain('!!!');
+      expect(code).toContain(chunkImport);
+    }
   });
 });
