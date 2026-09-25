@@ -6,6 +6,35 @@ As Native Federation is tooling agnostic, we need an adapter to make it work wit
 
 Find an example repository here: https://github.com/Aukevanoost/native-federation-examples-react/
 
+## Installation
+
+`@softarc/native-federation` is a peer dependency, so install it next to the adapter:
+
+```sh
+npm i -D @softarc/native-federation @softarc/native-federation-esbuild
+```
+
+## Federation config
+
+Write your `federation.config.mjs` with core's `@softarc/native-federation/config`. The adapter's
+`/config` entry only adds what is esbuild-specific: `ESBUILD_SKIP_LIST` extends core's
+`DEFAULT_SKIP_LIST` with this package's own entry points. For React, use `REACT_SKIP_LIST` from
+the React preset, which also skips react-dom's server, static, test-utils and profiling builds:
+
+```js
+import { withNativeFederation, shareAll } from '@softarc/native-federation/config';
+import { REACT_SKIP_LIST } from '@softarc/native-federation-esbuild/frameworks/react';
+
+export default withNativeFederation({
+  name: 'mfe1',
+  exposes: { './component': './src/component.tsx' },
+  shared: shareAll(
+    { singleton: true, strictVersion: true, requiredVersion: 'auto' },
+    { skipList: REACT_SKIP_LIST }
+  ),
+});
+```
+
 ## Framework plugins
 
 The adapter is framework-agnostic. Framework-specific behaviour — file replacements (e.g. React's `cjs/*.development.js` vs `cjs/*.production.min.js`), esbuild plugins for non-JS sources, extra `resolveExtensions`, and the CommonJS interop plugin — is supplied through **framework plugins** that you pass to the adapter.
