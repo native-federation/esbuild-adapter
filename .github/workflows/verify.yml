@@ -1,0 +1,41 @@
+name: Code checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "24.x"
+      - name: Setup PNPM
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: Dependencies OK
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck OK
+        run: pnpm typecheck
+
+      - name: Build OK
+        run: pnpm build
+
+      - name: Lint OK
+        run: pnpm lint
+
+      - name: Knip OK
+        run: pnpm knip
+
+      - name: Test OK
+        run: pnpm test
+
+      - name: Audit OK
+        run: pnpm audit --audit-level moderate
+        env:
+          CI: true

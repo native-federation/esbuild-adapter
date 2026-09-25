@@ -1,6 +1,2 @@
-packages:
-  - packages/adapter
 allowBuilds:
-  '@swc/core': true
   esbuild: true
-  nx: false
