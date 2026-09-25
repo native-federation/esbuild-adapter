@@ -9,7 +9,7 @@
     "url": "https://github.com/native-federation/esbuild-adapter"
   },
   "bugs": "https://github.com/native-federation/esbuild-adapter/issues",
-  "packageManager": "pnpm@11.12.0",
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "build": "node esbuild.config.mjs && tsc -p tsconfig.build.json",
     "lint": "eslint src",
