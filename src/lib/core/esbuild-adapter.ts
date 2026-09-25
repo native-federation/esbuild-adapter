@@ -50,6 +50,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
       external,
       outdir,
       hash,
+      chunks = false,
       dev = false,
       platform = 'browser',
       tsConfigPath,
@@ -71,6 +72,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
           resolveFrameworkConfig(config, dev, ['.ts', '.tsx', '.mjs', '.js', '.cjs']),
           dev,
           hash,
+          chunks,
           esbuildPlatform,
           tsConfigPath
         )
@@ -81,6 +83,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
           resolveFrameworkConfig(config, dev, ['.mjs', '.js', '.cjs']),
           dev,
           hash,
+          chunks,
           esbuildPlatform
         );
 

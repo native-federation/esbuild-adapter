@@ -10,6 +10,7 @@ export async function createSourceCodeEsbuildContext(
   config: ResolvedFrameworkConfig,
   dev: boolean,
   hash: boolean,
+  chunks: boolean,
   platform: 'browser' | 'node',
   tsConfigPath?: string
 ): Promise<esbuild.BuildContext> {
@@ -28,7 +29,7 @@ export async function createSourceCodeEsbuildContext(
     sourcemap: dev,
     minify: !dev,
     format: 'esm',
-    splitting: false, // Todo: support splitting
+    splitting: chunks,
     target: ['esnext'],
     platform,
     tsconfig: tsConfigPath,
