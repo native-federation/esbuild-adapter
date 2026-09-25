@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/index.ts", "src/domain.ts", "src/lib/frameworks/react.ts"],
+  "project": ["src/**/*.ts"],
+  "ignore": [],
+  "ignoreDependencies": ["prettier"],
+  "vitest": {
+    "config": ["vite.config.ts"],
+    "entry": ["src/**/*.{spec,test}.ts", "src/**/__test-helpers__/**/*.ts"]
+  }
+}
