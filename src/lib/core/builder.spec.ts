@@ -24,7 +24,10 @@ function createFixture(root: string): void {
         target: 'es2022',
         module: 'esnext',
         moduleResolution: 'bundler',
-        paths: { '@fixture/ui': ['./libs/ui/index.ts'] },
+        paths: {
+          '@fixture/ui': ['./libs/ui/index.ts'],
+          '@fixture/kit': ['./libs/kit/index.ts'],
+        },
       },
     })
   );
@@ -79,6 +82,35 @@ function createFixture(root: string): void {
       ].join('\n')
     );
   }
+
+  // An expose reaching into a mapped lib by relative path, both through a file the barrel
+  // re-exports and through one it keeps private.
+  write('libs/kit/index.ts', `export * from './button';\n`);
+  write('libs/kit/button.ts', `export const kitButton = (s: string) => s + '<KIT_BUTTON>';\n`);
+  write('libs/kit/internal.ts', `export const secret = () => '<KIT_INTERNAL>';\n`);
+  write(
+    'src/deep.ts',
+    [
+      `import { kitButton } from '@fixture/kit';`,
+      `import { kitButton as deepButton } from '../libs/kit/button';`,
+      `import { secret } from '../libs/kit/internal';`,
+      `export const render = () => kitButton('a') + deepButton('b') + secret();`,
+      '',
+    ].join('\n')
+  );
+  write(
+    'federation.mappings.config.mjs',
+    [
+      `import { withNativeFederation } from '@softarc/native-federation/config';`,
+      `export default withNativeFederation({`,
+      `  name: 'mappings',`,
+      `  exposes: { './deep': './src/deep.ts' },`,
+      `  shared: {},`,
+      `  sharedMappings: ['@fixture/kit'],`,
+      `});`,
+      '',
+    ].join('\n')
+  );
 
   // federation.config.mjs imports core; link the adapter's copy so it resolves from the tmp dir.
   const require = createRequire(import.meta.url);
@@ -196,5 +228,20 @@ describe('runEsBuildBuilder', () => {
       expect(code).not.toContain('!!!');
       expect(code).toContain(chunkImport);
     }
+  });
+
+  it('rewrites a relative import into a shared mapping to the mapping specifier', async () => {
+    const { outDir, remoteEntry } = await build('federation.mappings.config.mjs', 'dist-mappings');
+
+    const kit = (remoteEntry.shared as SharedInfo[]).find(s => s.packageName === '@fixture/kit');
+    expect(fs.readFileSync(path.join(outDir, kit!.outFileName), 'utf-8')).toContain('<KIT_BUTTON>');
+
+    const [exposed] = remoteEntry.exposes;
+    const code = fs.readFileSync(path.join(outDir, exposed!.outFileName), 'utf-8');
+    expect(code).not.toContain('<KIT_BUTTON>');
+    expect(code).toMatch(/from\s*["']@fixture\/kit["']/);
+    expect(code).not.toContain('libs/kit');
+    // The barrel doesn't publish internal.ts, so rewriting would import a name that isn't there.
+    expect(code).toContain('<KIT_INTERNAL>');
   });
 });

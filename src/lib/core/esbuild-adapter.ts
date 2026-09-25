@@ -48,6 +48,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
     const {
       entryPoints,
       external,
+      mappedPaths,
       outdir,
       hash,
       chunks = false,
@@ -68,6 +69,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
       ? await createSourceCodeEsbuildContext(
           entryPoints,
           external,
+          mappedPaths,
           outdir,
           resolveFrameworkConfig(config, dev, ['.ts', '.tsx', '.mjs', '.js', '.cjs']),
           dev,
