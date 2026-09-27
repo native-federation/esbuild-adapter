@@ -4,6 +4,7 @@ import * as path from 'path';
 import { createRequire } from 'module';
 import type { FederationInfo, SharedInfo } from '@softarc/native-federation';
 import type * as BuilderModule from './builder.js';
+import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
 
 // Minimal workspace: one shared npm package, one exposed module and one tsconfig path mapping.
 function createFixture(root: string): void {
@@ -15,7 +16,11 @@ function createFixture(root: string): void {
 
   write(
     'package.json',
-    JSON.stringify({ name: 'fixture', version: '1.0.0', dependencies: { 'tiny-dep': '1.2.3' } })
+    JSON.stringify({
+      name: 'fixture',
+      version: '1.0.0',
+      dependencies: { 'tiny-dep': '1.2.3', 'modern-dep': '2.0.0' },
+    })
   );
   write(
     'tsconfig.json',
@@ -112,6 +117,39 @@ function createFixture(root: string): void {
     ].join('\n')
   );
 
+  // An expose reading a user define and using syntax a lower target has to transpile away.
+  write(
+    'src/defined.ts',
+    [
+      `export { pick } from 'modern-dep';`,
+      `declare const BUILD_ID: string;`,
+      `export const info = (o?: { id?: string }) => (o?.id ?? BUILD_ID) + '<DEFINED>';`,
+      '',
+    ].join('\n')
+  );
+  // A shared npm package the expose above imports: gets target and sourcemap, but not define
+  // (native-federation-core#152). Unimported shared packages are dropped from the build.
+  write(
+    'node_modules/modern-dep/package.json',
+    JSON.stringify({ name: 'modern-dep', version: '2.0.0', type: 'module', exports: './index.js' })
+  );
+  write(
+    'node_modules/modern-dep/index.js',
+    `export const pick = o => (o?.id ?? BUILD_ID) + '<MODERN>';\n`
+  );
+  write(
+    'federation.passthrough.config.mjs',
+    [
+      `import { withNativeFederation, share } from '@softarc/native-federation/config';`,
+      `export default withNativeFederation({`,
+      `  name: 'passthrough',`,
+      `  exposes: { './defined': './src/defined.ts' },`,
+      `  shared: share({ 'modern-dep': { singleton: true, requiredVersion: 'auto' } }),`,
+      `});`,
+      '',
+    ].join('\n')
+  );
+
   // federation.config.mjs imports core; link the adapter's copy so it resolves from the tmp dir.
   const require = createRequire(import.meta.url);
   const corePkg = path.dirname(require.resolve('@softarc/native-federation/package.json'));
@@ -178,13 +216,17 @@ describe('runEsBuildBuilder', () => {
     expect(exposedCode).not.toContain('hello ');
   });
 
-  const build = async (federationConfig: string, outputPath: string) => {
+  const build = async (
+    federationConfig: string,
+    outputPath: string,
+    adapterConfig: Partial<EsBuildAdapterConfig> = {}
+  ) => {
     const builder = await runEsBuildBuilder(federationConfig, {
       workspaceRoot: root,
       outputPath,
       cachePath: `node_modules/.cache/${outputPath}`,
       tsConfig: 'tsconfig.json',
-      adapterConfig: { plugins: [], frameworks: [] },
+      adapterConfig: { plugins: [], frameworks: [], ...adapterConfig },
     });
     await builder.close();
     const outDir = path.join(root, outputPath);
@@ -243,5 +285,63 @@ describe('runEsBuildBuilder', () => {
     expect(code).not.toContain('libs/kit');
     // The barrel doesn't publish internal.ts, so rewriting would import a name that isn't there.
     expect(code).toContain('<KIT_INTERNAL>');
+  });
+
+  it('passes define, target and sourcemap through to the exposes build', async () => {
+    const { outDir, remoteEntry } = await build('federation.passthrough.config.mjs', 'dist-pass', {
+      define: { BUILD_ID: '"build-42"' },
+      target: 'es2019',
+      sourcemap: true,
+    });
+
+    const [exposed] = remoteEntry.exposes;
+    const code = fs.readFileSync(path.join(outDir, exposed!.outFileName), 'utf-8');
+    expect(code).toContain('build-42');
+    expect(code).not.toContain('BUILD_ID');
+    // es2019 predates optional chaining and nullish coalescing.
+    expect(code).not.toContain('?.');
+    expect(code).not.toContain('??');
+    // A prod build has no source maps unless asked for.
+    expect(fs.existsSync(path.join(outDir, exposed!.outFileName + '.map'))).toBe(true);
+  });
+
+  it('passes target and sourcemap, but not define, through to shared npm packages', async () => {
+    const { outDir, remoteEntry } = await build(
+      'federation.passthrough.config.mjs',
+      'dist-pass-shared',
+      {
+        define: { BUILD_ID: '"build-42"' },
+        target: 'es2019',
+        sourcemap: true,
+      }
+    );
+
+    const modernDep = (remoteEntry.shared as SharedInfo[]).find(
+      s => s.packageName === 'modern-dep'
+    );
+    const code = fs.readFileSync(path.join(outDir, modernDep!.outFileName), 'utf-8');
+    expect(code).toContain('<MODERN>');
+    expect(code).not.toContain('?.');
+    expect(code).not.toContain('??');
+    // The externals cache key can't see define, so it must not leak into the shared bundle.
+    expect(code).toContain('BUILD_ID');
+    expect(code).not.toContain('build-42');
+    // Core hashes the entry's name after bundling but leaves its map under the pre-hash name, so
+    // follow the link rather than assuming `<outFileName>.map`.
+    const mapFile = /\/\/# sourceMappingURL=(\S+)/.exec(code)?.[1];
+    expect(mapFile).toBeDefined();
+    expect(fs.existsSync(path.join(outDir, mapFile!))).toBe(true);
+  });
+
+  it('keeps the defaults when no passthroughs are set', async () => {
+    const { outDir, remoteEntry } = await build(
+      'federation.passthrough.config.mjs',
+      'dist-pass-defaults'
+    );
+
+    const [exposed] = remoteEntry.exposes;
+    const code = fs.readFileSync(path.join(outDir, exposed!.outFileName), 'utf-8');
+    expect(code).toContain('??');
+    expect(fs.existsSync(path.join(outDir, exposed!.outFileName + '.map'))).toBe(false);
   });
 });
