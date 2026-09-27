@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { EntryPoint } from '@softarc/native-federation/domain';
 import type { ReplacementConfig } from '../domain/adapter-config.contract.js';
 import type { ResolvedFrameworkConfig } from '../core/resolve-framework-config.js';
+import { createScopedCommonJsPlugin } from './commonjs-plugin.js';
 
 export async function createNodeModulesEsbuildContext(
   entryPoints: EntryPoint[],
@@ -26,12 +27,16 @@ export async function createNodeModulesEsbuildContext(
 
   const plugins: esbuild.Plugin[] = [...config.plugins];
   if (config.needsCommonJsPlugin) {
-    const commonjsPluginModule = await import('@chialab/esbuild-plugin-commonjs');
-    plugins.unshift(commonjsPluginModule.default());
+    plugins.unshift(
+      await createScopedCommonJsPlugin(
+        entryPoints.map(ep => ep.fileName),
+        external
+      )
+    );
   }
 
   return esbuild.context({
-    entryPoints: entryPoints.map((ep) => ({
+    entryPoints: entryPoints.map(ep => ({
       in: ep.fileName,
       out: path.parse(ep.outName).name,
     })),

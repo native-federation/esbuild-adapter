@@ -15,7 +15,7 @@ The esbuild adapter for **Native Federation**: the mental model of Module Federa
 
 - **Framework-agnostic** — plugs the [core builder](https://native-federation.com/docs/v4/core/) into esbuild for React, Preact, Lit or plain TypeScript; no CLI wrapper or framework coupling.
 - **Framework presets** — per-framework esbuild settings (file replacements, loaders, `resolveExtensions`, CommonJS interop) as plugins. A React preset ships built-in.
-- **CommonJS just works** — shared CJS dependencies go through `@chialab/esbuild-plugin-commonjs` when a preset asks for it.
+- **CommonJS just works** — when a preset asks for it, shared CJS files that `require()` another shared package (and CJS entry points) are converted with `@chialab/cjs-to-esm`; everything else uses esbuild's own interop.
 - **Watch mode** — a debounced, cancellable rebuild queue that only re-bundles what changed.
 
 ## Quick start
