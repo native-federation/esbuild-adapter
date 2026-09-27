@@ -43,6 +43,9 @@ beforeAll(() => {
   write('libs/renamed/src/lib/badge.ts', 'export class Badge {}\n');
 
   write('apps/app/src/main.ts');
+
+  // A lib reached through a symlinked dir, as with preserveSymlinks or a linked checkout.
+  fs.symlinkSync(path.join(ws, 'libs/foo'), path.join(ws, 'linked-foo'), 'junction');
 });
 
 afterAll(() => fs.rmSync(ws, { recursive: true, force: true }));
@@ -111,6 +114,18 @@ describe('createSharedMappingsPlugin', () => {
     expect(result).toEqual({ path: 'foo-remote', external: true });
   });
 
+  // The resolver only knows the real path of the mapping, not the symlinked spelling.
+  it('maps a relative import that walks through a symlinked dir', async () => {
+    const { handler } = setupPlugin(foo());
+
+    const result = await resolve(handler!, {
+      from: 'apps/app/src/main.ts',
+      import: '../../../linked-foo/src/lib/thing',
+    });
+
+    expect(result).toEqual({ path: 'foo-remote', external: true });
+  });
+
   it('maps a relative import of the mapped entry point itself', async () => {
     const { handler } = setupPlugin(foo());
 
@@ -138,6 +153,19 @@ describe('createSharedMappingsPlugin', () => {
 
     const result = await resolve(handler!, {
       from: 'libs/foo/src/lib/other.ts',
+      import: './thing',
+    });
+
+    expect(result).toEqual({});
+  });
+
+  // With preserveSymlinks the importer keeps its symlinked spelling while the target is
+  // realpathed; unless both are compared as real paths, the lib would externalize itself.
+  it('does not externalize a self-import from within a lib reached through a symlink', async () => {
+    const { handler } = setupPlugin(foo());
+
+    const result = await resolve(handler!, {
+      from: 'linked-foo/src/lib/other.ts',
       import: './thing',
     });
 

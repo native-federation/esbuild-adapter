@@ -1,4 +1,5 @@
 import type { Plugin, PluginBuild } from 'esbuild';
+import * as fs from 'fs';
 import * as path from 'path';
 import {
   createMappingImportResolver,
@@ -25,10 +26,24 @@ export function createSharedMappingsPlugin(sharedMappings: PathToImport): Plugin
         }
 
         // Unresolved: the resolver does its own extension and index resolution.
-        const importName = resolveMapping(path.join(args.resolveDir, args.path), args.importer);
+        const importName = resolveMapping(
+          realDir(path.join(args.resolveDir, args.path)),
+          realDir(args.importer)
+        );
 
         return importName ? { path: importName, external: true } : {};
       });
     },
   };
+}
+
+// The resolver compares real paths, while the specifier may walk through a symlinked dir (and
+// with preserveSymlinks so may resolveDir and the importer). Only the dir is realpathed: the
+// target file is unresolved.
+function realDir(file: string): string {
+  try {
+    return path.join(fs.realpathSync(path.dirname(file)), path.basename(file));
+  } catch {
+    return file;
+  }
 }

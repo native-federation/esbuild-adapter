@@ -10,6 +10,10 @@ export interface ResolvedFrameworkConfig {
   loader?: Record<string, esbuild.Loader>;
   resolveExtensions: string[];
   needsCommonJsPlugin: boolean;
+  define?: Record<string, string>;
+  target?: string | string[];
+  sourcemap?: esbuild.BuildOptions['sourcemap'];
+  preserveSymlinks?: boolean;
 }
 
 export function resolveFrameworkConfig(
@@ -55,5 +59,9 @@ export function resolveFrameworkConfig(
     loader: Object.keys(mergedLoader).length ? mergedLoader : undefined,
     resolveExtensions: mergedExtensions,
     needsCommonJsPlugin,
+    define: config.define,
+    target: config.target,
+    sourcemap: config.sourcemap,
+    preserveSymlinks: config.preserveSymlinks,
   };
 }

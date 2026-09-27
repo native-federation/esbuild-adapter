@@ -85,6 +85,27 @@ describe('resolveFrameworkConfig', () => {
     expect(result.plugins).toEqual([fwPlugin, userPlugin]);
   });
 
+  it('passes define, target, sourcemap and preserveSymlinks through from the user config', () => {
+    const result = resolveFrameworkConfig(
+      {
+        plugins: [],
+        define: { BUILD_ID: '"42"' },
+        target: 'es2020',
+        sourcemap: 'external',
+        preserveSymlinks: true,
+      },
+      false,
+      defaults
+    );
+
+    expect(result).toMatchObject({
+      define: { BUILD_ID: '"42"' },
+      target: 'es2020',
+      sourcemap: 'external',
+      preserveSymlinks: true,
+    });
+  });
+
   it('needs the CommonJS plugin when any framework asks for it', () => {
     const result = resolveFrameworkConfig(
       { plugins: [], frameworks: [{ name: 'a' }, { name: 'b', needsCommonJsPlugin: true }] },
