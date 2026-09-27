@@ -18,7 +18,6 @@
     "test": "vitest"
   },
   "dependencies": {
-    "@chialab/esbuild-plugin-commonjs": "^0.19.1",
     "esbuild": "^0.28.2"
   },
   "peerDependencies": {
