@@ -3,7 +3,7 @@ import * as path from 'path';
 import type { EntryPoint } from '@softarc/native-federation/domain';
 import type { ReplacementConfig } from '../domain/adapter-config.contract.js';
 import type { ResolvedFrameworkConfig } from '../core/resolve-framework-config.js';
-import { createScopedCommonJsPlugin } from './commonjs-plugin.js';
+import { createCommonJsPlugin } from './commonjs-plugin.js';
 
 export async function createNodeModulesEsbuildContext(
   entryPoints: EntryPoint[],
@@ -27,12 +27,7 @@ export async function createNodeModulesEsbuildContext(
 
   const plugins: esbuild.Plugin[] = [...config.plugins];
   if (config.needsCommonJsPlugin) {
-    plugins.unshift(
-      await createScopedCommonJsPlugin(
-        entryPoints.map(ep => ep.fileName),
-        external
-      )
-    );
+    plugins.unshift(createCommonJsPlugin(external));
   }
 
   return esbuild.context({

@@ -2,7 +2,8 @@ import * as esbuild from 'esbuild';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { createExternalMatcher, createScopedCommonJsPlugin } from './commonjs-plugin.js';
+import * as url from 'url';
+import { createCommonJsPlugin, createExternalMatcher } from './commonjs-plugin.js';
 
 /**
  * Fake packages in a throwaway node_modules:
@@ -10,11 +11,14 @@ import { createExternalMatcher, createScopedCommonJsPlugin } from './commonjs-pl
  * - `fake-react` is plain CJS and is shared, so it's external in every build below.
  * - `fake-dom` requires `fake-react`, like react-dom does. esbuild alone turns that into a
  *   `__require("fake-react")` shim that throws in the browser.
+ * - `chain` is the shape that broke when only some files were converted: the entry requires
+ *   `./a.js`, which requires none of the externals but does require `./b.js`, which requires
+ *   `fake-react`.
  * - `umd-sniff` is a minimal copy of quill-delta's Delta.js: named `exports.*` plus a trailing
- *   `typeof module === 'object'` block that chialab mistakes for UMD (angular-adapter #108).
+ *   `typeof module === 'object'` block that chialab mistook for UMD (angular-adapter #108).
  * - `consumer` is ESM and imports a named export from `umd-sniff`, as quill does.
- * - `reexporter` is shaped like react/index.js: it only re-exports `./cjs/impl.js`.
- * - `linked-cjs` lives in `.pnpm/` and is reached through a node_modules symlink, as under pnpm.
+ * - `esm-default` and `esm-mixed` are ESM externals: one only has a default export (a shared CJS
+ *   package with synthesizeCjsExports off), the other has a default next to unrelated named ones.
  * - `node-cjs` requires builtins, which esbuild only externalizes implicitly on `platform: 'node'`.
  */
 let ws: string;
@@ -25,21 +29,36 @@ function write(relative: string, contents: string): void {
   fs.writeFileSync(file, contents);
 }
 
-function pkg(name: string, main: string, source: string): void {
-  write(`node_modules/${name}/package.json`, JSON.stringify({ name, main }));
+function pkg(name: string, main: string, source: string, type?: string): void {
+  write(`node_modules/${name}/package.json`, JSON.stringify({ name, main, type }));
   write(`node_modules/${name}/${main}`, source);
 }
 
 const entry = (name: string, main = 'index.js') => path.join(ws, 'node_modules', name, main);
 
+const EXTERNAL = ['fake-react', 'esm-default', 'esm-mixed'];
+
 beforeAll(() => {
   ws = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nf-commonjs-')));
 
-  pkg('fake-react', 'index.js', 'exports.createElement = function () { return 1; };\n');
+  pkg('fake-react', 'index.js', 'exports.createElement = function () { return "element"; };\n');
   pkg(
     'fake-dom',
     'index.js',
     'var React = require("fake-react");\nexports.render = function () { return React.createElement(); };\n'
+  );
+  pkg(
+    'chain',
+    'index.js',
+    'var a = require("./a.js");\nexports.run = function () { return a(); };\n'
+  );
+  write(
+    'node_modules/chain/a.js',
+    'var b = require("./b.js");\nmodule.exports = function () { return b(); };\n'
+  );
+  write(
+    'node_modules/chain/b.js',
+    'var React = require("fake-react");\nmodule.exports = function () { return React.createElement(); };\n'
   );
   pkg(
     'umd-sniff',
@@ -63,18 +82,17 @@ beforeAll(() => {
     'index.mjs',
     'import Thing, { Helper } from "umd-sniff";\nexport { Thing, Helper };\n'
   );
+  pkg('esm-default', 'index.js', 'export default { value: "default" };\n', 'module');
   pkg(
-    'reexporter',
+    'esm-mixed',
     'index.js',
-    '"use strict";\nif (process.env.NODE_ENV === "production") {\n  module.exports = require("./cjs/impl.js");\n} else {\n  module.exports = require("./cjs/impl.js");\n}\n'
+    'export default { other: "default" };\nexport const other = "named";\n',
+    'module'
   );
-  write('node_modules/reexporter/cjs/impl.js', 'exports.useThing = function () { return 1; };\n');
-  write('node_modules/.pnpm/linked-cjs/package.json', JSON.stringify({ name: 'linked-cjs' }));
-  write('node_modules/.pnpm/linked-cjs/index.js', 'exports.linked = 1;\n');
-  fs.symlinkSync(
-    path.join(ws, 'node_modules/.pnpm/linked-cjs'),
-    path.join(ws, 'node_modules/linked-cjs'),
-    'dir'
+  pkg(
+    'requires-esm',
+    'index.js',
+    'exports.fromDefault = require("esm-default").value;\nexports.mixed = require("esm-mixed");\n'
   );
   pkg(
     'node-cjs',
@@ -92,7 +110,7 @@ async function bundle(
 ): Promise<string> {
   const result = await esbuild.build({
     entryPoints,
-    external: ['fake-react'],
+    external: EXTERNAL,
     bundle: true,
     format: 'esm',
     platform: 'browser',
@@ -105,87 +123,67 @@ async function bundle(
   return result.outputFiles.map(file => file.text).join('\n');
 }
 
-describe('createScopedCommonJsPlugin', () => {
-  it('turns a require() of an external into an import', async () => {
-    const entryPoints = [entry('fake-dom')];
-    const code = await bundle(entryPoints, [
-      await createScopedCommonJsPlugin(entryPoints, ['fake-react']),
-    ]);
+// Writes the bundle next to the fake node_modules so its external imports resolve, then runs it.
+async function run(entryPoint: string): Promise<Record<string, unknown>> {
+  const code = await bundle([entryPoint], [createCommonJsPlugin(EXTERNAL)]);
+  const file = path.join(ws, `out-${path.basename(path.dirname(entryPoint))}.mjs`);
+  fs.writeFileSync(file, code);
+  return import(/* @vite-ignore */ url.pathToFileURL(file).href);
+}
 
-    expect(code).toMatch(/import .* from "fake-react"/);
+describe('createCommonJsPlugin', () => {
+  it('turns a require() of an external into an import', async () => {
+    const code = await bundle([entry('fake-dom')], [createCommonJsPlugin(EXTERNAL)]);
+
+    expect(code).toMatch(/import \* as \w+ from "fake-react"/);
     expect(code).not.toContain('__require("fake-react")');
   });
 
+  it('hands a CJS caller the module.exports of a CJS external', async () => {
+    const mod = await run(entry('fake-dom'));
+
+    expect((mod['default'] as { render(): string }).render()).toBe('element');
+  });
+
+  it('keeps plain CJS requires working between files of a package', async () => {
+    const mod = await run(entry('chain'));
+
+    expect((mod['default'] as { run(): string }).run()).toBe('element');
+  });
+
+  it('unwraps the default of an ES module external only when it is all there is', async () => {
+    const mod = (await run(entry('requires-esm')))['default'] as Record<string, unknown>;
+
+    expect(mod['fromDefault']).toBe('default');
+    // A module namespace object, which toMatchObject can't walk.
+    expect({ ...(mod['mixed'] as object) }).toEqual({
+      default: { other: 'default' },
+      other: 'named',
+    });
+  });
+
   it('keeps the named exports of a module chialab would mistake for UMD', async () => {
-    const entryPoints = [entry('consumer', 'index.mjs')];
-    const code = await bundle(entryPoints, [
-      await createScopedCommonJsPlugin(entryPoints, ['fake-react']),
-    ]);
+    const code = await bundle([entry('consumer', 'index.mjs')], [createCommonJsPlugin(EXTERNAL)]);
 
     expect(code).toMatch(/export \{[^}]*\bHelper\b/);
   });
 
-  // Converting every file is what the adapter used before; this pins down why it had to change.
-  it('breaks that module when it is converted', async () => {
-    const { transform } = await import('@chialab/cjs-to-esm');
-    const source = fs.readFileSync(entry('umd-sniff'), 'utf-8');
-
-    expect((await transform(source, { sourcemap: false }))!.code).not.toMatch(/as "Helper"/);
-  });
-
-  // With synthesizeCjsExports off, core hands the CJS file itself over as the entry point.
-  it('still gives a CJS entry point named exports', async () => {
-    const entryPoints = [entry('fake-react')];
-    const code = await bundle(entryPoints, [await createScopedCommonJsPlugin(entryPoints, [])]);
-
-    expect(code).toMatch(/export \{[^}]*\bcreateElement\b/);
-  });
-
-  it('gives a CJS entry point reached through a symlink named exports', async () => {
-    const entryPoints = [path.join(ws, 'node_modules/linked-cjs/index.js')];
-    const code = await bundle(entryPoints, [await createScopedCommonJsPlugin(entryPoints, [])]);
-
-    expect(code).toMatch(/export \{[^}]*\blinked\b/);
-  });
-
-  // react/index.js becomes `export * from './cjs/react.production.js'`; the re-exported file
-  // has to be converted too, or esbuild's own interop leaves only a default export.
-  it('gives an entry point that re-exports another CJS file its named exports', async () => {
-    const entryPoints = [entry('reexporter')];
-    const code = await bundle(entryPoints, [await createScopedCommonJsPlugin(entryPoints, [])]);
-
-    expect(code).toMatch(/export \{[^}]*\buseThing\b/);
-  });
-
   it('turns a require() of a builtin into an import on node', async () => {
-    // No entry points passed, so only the builtin requires bring node-cjs into scope.
-    const code = await bundle([entry('node-cjs')], [await createScopedCommonJsPlugin([], [])], {
+    const code = await bundle([entry('node-cjs')], [createCommonJsPlugin([])], {
       platform: 'node',
     });
 
-    expect(code).toMatch(/import .* from "fs"/);
-    expect(code).toMatch(/import .* from "node:path"/);
+    expect(code).toMatch(/import \* as \w+ from "fs"/);
+    expect(code).toMatch(/import \* as \w+ from "node:path"/);
     expect(code).not.toMatch(/__require\("(node:)?(fs|path)"\)/);
   });
 
-  it('leaves the onLoad hooks of later plugins alone', async () => {
-    const entryPoints = [entry('consumer', 'index.mjs')];
-    const seen: string[] = [];
-    const spy: esbuild.Plugin = {
-      name: 'spy',
-      setup(build) {
-        build.onLoad({ filter: /\.m?js$/ }, args => {
-          seen.push(path.relative(ws, args.path));
-          return undefined;
-        });
-      },
-    };
+  it('leaves requires alone when the output is not ESM', async () => {
+    const code = await bundle([entry('fake-dom')], [createCommonJsPlugin(EXTERNAL)], {
+      format: 'cjs',
+    });
 
-    await bundle(entryPoints, [await createScopedCommonJsPlugin(entryPoints, ['fake-react']), spy]);
-
-    expect(seen).toEqual(
-      expect.arrayContaining(['node_modules/consumer/index.mjs', 'node_modules/umd-sniff/index.js'])
-    );
+    expect(code).toContain('require("fake-react")');
   });
 });
 
