@@ -1,6 +1,9 @@
 import * as path from 'path';
 import { getDefaultCachePath } from '@softarc/native-federation/internal';
+import { toDiskCase } from '../utils/disk-case.js';
 import { normalizeBuilderOptions } from './normalize-options.js';
+
+vi.mock('../utils/disk-case.js', () => ({ toDiskCase: vi.fn((p: string) => p) }));
 
 describe('normalizeBuilderOptions', () => {
   it('throws when outputPath is missing', () => {
@@ -44,6 +47,23 @@ describe('normalizeBuilderOptions', () => {
     expect(normalizeBuilderOptions({ outputPath: 'dist', workspaceRoot: root }).workspaceRoot).toBe(
       root
     );
+  });
+
+  // Core re-cases the root it builds from, so the adapter's own derived paths must agree with it.
+  it('derives workspaceRoot and cachePath from the on-disk spelling of the root', () => {
+    const shellRoot = path.resolve('/tmp/ws');
+    const diskRoot = path.resolve('/tmp/WS');
+    vi.mocked(toDiskCase).mockImplementationOnce(p => (p === shellRoot ? diskRoot : p));
+
+    const result = normalizeBuilderOptions({
+      outputPath: 'dist',
+      workspaceRoot: shellRoot,
+      cachePath: '.cache/nf',
+    });
+
+    expect(toDiskCase).toHaveBeenCalledWith(shellRoot);
+    expect(result.workspaceRoot).toBe(diskRoot);
+    expect(result.cachePath).toBe(path.join(diskRoot, '.cache/nf'));
   });
 
   it('passes explicit values through', () => {
