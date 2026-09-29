@@ -1,3 +1,4 @@
+import * as path from 'path';
 import {
   buildForFederation,
   createFederationCache,
@@ -10,9 +11,12 @@ import {
 import {
   AbortedError,
   createNfWatcher,
+  isUnderDir,
+  linkedSharedDirs,
   logger,
   RebuildQueue,
   setLogLevel,
+  sharedMappingDirs,
   syncNfFileWatcher,
   type NfFileWatcher,
 } from '@softarc/native-federation/internal';
@@ -53,6 +57,7 @@ export async function runEsBuildBuilder(
       tsConfig: options.tsConfig,
       verbose: options.verbose,
       watch: options.watch,
+      watchLinkedDeps: options.watchLinkedDeps,
       dev: options.dev,
       entryPoints: options.entryPoints,
       packageJson: options.packageJson,
@@ -81,19 +86,27 @@ export async function runEsBuildBuilder(
     };
   }
 
+  const linkedDirs = linkedSharedDirs(normalized.config, normalized.options);
+  const outputPath = path.resolve(normalized.options.outputPath);
+
   const rebuildQueue = new RebuildQueue();
   const pendingChanges = new Set<string>();
   let closed = false;
 
   const watcher: NfFileWatcher = createNfWatcher({
+    watch: options.watcher,
     onChange: changedPath => {
       if (closed) return;
+      // A mapping dir can contain the output, and every rebuild writes there (ng #112).
+      if (isUnderDir(path.resolve(changedPath), outputPath)) return;
       pendingChanges.add(changedPath);
       void triggerRebuild();
     },
   });
 
-  syncNfFileWatcher(watcher, bundlerCache);
+  // Also covers files created in a mapping lib after the last build.
+  watcher.addPaths(sharedMappingDirs(normalized.config));
+  syncNfFileWatcher(watcher, bundlerCache, linkedDirs);
 
   async function triggerRebuild(): Promise<void> {
     await rebuildQueue.track(async signal => {
@@ -115,7 +128,7 @@ export async function runEsBuildBuilder(
           signal
         );
 
-        syncNfFileWatcher(watcher, bundlerCache);
+        syncNfFileWatcher(watcher, bundlerCache, linkedDirs);
         logger.info('Federation rebuild done.');
         return { success: true };
       } catch (error) {

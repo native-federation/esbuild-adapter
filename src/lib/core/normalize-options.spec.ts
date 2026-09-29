@@ -23,11 +23,20 @@ describe('normalizeBuilderOptions', () => {
       packageJson: undefined,
       dev: false,
       watch: false,
+      watchLinkedDeps: false,
+      watcher: undefined,
       verbose: false,
       rebuildDelay: 50,
       cacheExternalArtifacts: true,
       adapterConfig: { plugins: [] },
     });
+  });
+
+  it('passes watchLinkedDeps and the watch port through', () => {
+    const watcher = vi.fn();
+    expect(
+      normalizeBuilderOptions({ outputPath: 'dist', watchLinkedDeps: true, watcher })
+    ).toMatchObject({ watchLinkedDeps: true, watcher });
   });
 
   it('resolves workspaceRoot against cwd and cachePath against workspaceRoot', () => {
