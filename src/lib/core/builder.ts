@@ -1,4 +1,3 @@
-import * as path from 'path';
 import {
   buildForFederation,
   createFederationCache,
@@ -11,7 +10,6 @@ import {
 import {
   AbortedError,
   createNfWatcher,
-  isUnderDir,
   linkedSharedDirs,
   logger,
   RebuildQueue,
@@ -28,6 +26,7 @@ import type {
 import type { EsbuildBundlerCache } from '../domain/adapter-context.contract.js';
 import { createEsBuildAdapter } from './esbuild-adapter.js';
 import { normalizeBuilderOptions } from './normalize-options.js';
+import { createChangeFilter, mappingWatchDirs } from '../utils/watch-filter.js';
 
 export interface EsBuildBuilder {
   federationInfo: FederationInfo;
@@ -87,7 +86,11 @@ export async function runEsBuildBuilder(
   }
 
   const linkedDirs = linkedSharedDirs(normalized.config, normalized.options);
-  const outputPath = path.resolve(normalized.options.outputPath);
+  const isIgnored = createChangeFilter({
+    workspaceRoot: normalized.options.workspaceRoot,
+    outputPath: normalized.options.outputPath,
+    cachePath: options.cachePath,
+  });
 
   const rebuildQueue = new RebuildQueue();
   const pendingChanges = new Set<string>();
@@ -97,15 +100,16 @@ export async function runEsBuildBuilder(
     watch: options.watcher,
     onChange: changedPath => {
       if (closed) return;
-      // A mapping dir can contain the output, and every rebuild writes there (ng #112).
-      if (isUnderDir(path.resolve(changedPath), outputPath)) return;
+      if (isIgnored(changedPath)) return;
       pendingChanges.add(changedPath);
       void triggerRebuild();
     },
   });
 
   // Also covers files created in a mapping lib after the last build.
-  watcher.addPaths(sharedMappingDirs(normalized.config));
+  watcher.addPaths(
+    mappingWatchDirs(sharedMappingDirs(normalized.config), normalized.options.workspaceRoot)
+  );
   syncNfFileWatcher(watcher, bundlerCache, linkedDirs);
 
   async function triggerRebuild(): Promise<void> {

@@ -62,6 +62,7 @@ function createFixture(root: string): void {
         paths: {
           '@fixture/ui': ['./libs/ui/index.ts'],
           '@fixture/kit': ['./libs/kit/index.ts'],
+          '@fixture/env': ['./env.ts'],
         },
       },
     })
@@ -209,6 +210,23 @@ function createFixture(root: string): void {
       `  exposes: { './watched': './src/watched.ts' },`,
       `  shared: share({ 'linked-dep': { singleton: true, requiredVersion: 'auto' } }),`,
       `  sharedMappings: ['@fixture/ui'],`,
+      `});`,
+      '',
+    ].join('\n')
+  );
+
+  // A mapping whose entry sits in the workspace root, so its dirname is the root itself.
+  write('env.ts', `export const env = '<ENV>';\n`);
+  write('src/uses-env.ts', `import { env } from '@fixture/env';\nexport const read = () => env;\n`);
+  write(
+    'federation.watch-root.config.mjs',
+    [
+      `import { withNativeFederation } from '@softarc/native-federation/config';`,
+      `export default withNativeFederation({`,
+      `  name: 'watch-root',`,
+      `  exposes: { './uses-env': './src/uses-env.ts' },`,
+      `  shared: {},`,
+      `  sharedMappings: ['@fixture/env'],`,
       `});`,
       '',
     ].join('\n')
@@ -461,6 +479,33 @@ describe('runEsBuildBuilder', () => {
         change(posix(path.join(root, 'dist-watch/remoteEntry.json')));
         await new Promise(resolve => setTimeout(resolve, 100));
         expect(rebuildForFederation).not.toHaveBeenCalled();
+      } finally {
+        await builder.close();
+      }
+    });
+
+    it('does not watch the workspace root for a root-level mapping, nor rebuild for node_modules', async () => {
+      const builder = await runEsBuildBuilder('federation.watch-root.config.mjs', {
+        workspaceRoot: root,
+        outputPath: 'dist-watch-root',
+        cachePath: 'node_modules/.cache/nf-watch-root',
+        tsConfig: 'tsconfig.json',
+        adapterConfig: { plugins: [], frameworks: [] },
+        watch: true,
+        rebuildDelay: 0,
+      });
+      try {
+        expect(watched(false)).not.toContain(posix(root));
+        // The mapping entry is still watched as a file, from the first build's inputs.
+        // esbuild's metafile paths are relative to cwd, which is the root here.
+        expect(watched(false).map(p => path.resolve(p))).toContain(path.join(root, 'env.ts'));
+
+        change(posix(path.join(root, 'node_modules/.cache/nf-watch-root/watch-root/x.json')));
+        await new Promise(resolve => setTimeout(resolve, 100));
+        expect(rebuildForFederation).not.toHaveBeenCalled();
+
+        change(posix(path.join(root, 'env.ts')));
+        await vi.waitFor(() => expect(rebuildForFederation).toHaveBeenCalledTimes(1));
       } finally {
         await builder.close();
       }
