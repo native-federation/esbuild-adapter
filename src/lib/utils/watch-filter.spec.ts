@@ -21,7 +21,7 @@ describe('createChangeFilter', () => {
     expect(isIgnored(at('dist/app'))).toBe(true);
   });
 
-  // Core passes the exposes build the raw outputPath, so its files end up under cwd.
+  // native-federation-core#156
   it('also ignores the output path resolved against cwd', () => {
     expect(isIgnored(path.resolve('dist/app/component.js'))).toBe(true);
   });

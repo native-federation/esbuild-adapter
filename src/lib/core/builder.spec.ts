@@ -496,8 +496,7 @@ describe('runEsBuildBuilder', () => {
       });
       try {
         expect(watched(false)).not.toContain(posix(root));
-        // The mapping entry is still watched as a file, from the first build's inputs.
-        // esbuild's metafile paths are relative to cwd, which is the root here.
+        // Still watched as a file; esbuild's metafile paths are cwd-relative, and cwd is root here.
         expect(watched(false).map(p => path.resolve(p))).toContain(path.join(root, 'env.ts'));
 
         change(posix(path.join(root, 'node_modules/.cache/nf-watch-root/watch-root/x.json')));
