@@ -4,6 +4,7 @@ import type {
   NormalizedEsBuildBuilderOptions,
 } from '../domain/builder-config.contract.js';
 import { getDefaultCachePath } from '@softarc/native-federation/internal';
+import { toDiskCase } from '../utils/disk-case.js';
 
 export function normalizeBuilderOptions(
   options: EsBuildBuilderOptions
@@ -12,13 +13,13 @@ export function normalizeBuilderOptions(
     throw new Error('[esbuild-builder] outputPath is required');
   }
 
-  const workspaceRoot = options.workspaceRoot
-    ? path.resolve(process.cwd(), options.workspaceRoot)
-    : process.cwd();
+  const workspaceRoot = toDiskCase(
+    options.workspaceRoot ? path.resolve(process.cwd(), options.workspaceRoot) : process.cwd()
+  );
 
   const tsConfig = options.tsConfig ?? 'tsconfig.json';
   const cachePath = options.cachePath
-    ? path.join(workspaceRoot, options.cachePath)
+    ? path.resolve(workspaceRoot, options.cachePath)
     : getDefaultCachePath(workspaceRoot);
 
   return {
