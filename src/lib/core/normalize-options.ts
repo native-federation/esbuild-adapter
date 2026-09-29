@@ -19,7 +19,7 @@ export function normalizeBuilderOptions(
 
   const tsConfig = options.tsConfig ?? 'tsconfig.json';
   const cachePath = options.cachePath
-    ? path.join(workspaceRoot, options.cachePath)
+    ? path.resolve(workspaceRoot, options.cachePath)
     : getDefaultCachePath(workspaceRoot);
 
   return {

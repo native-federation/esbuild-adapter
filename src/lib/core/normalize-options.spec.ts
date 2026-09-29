@@ -42,6 +42,14 @@ describe('normalizeBuilderOptions', () => {
     expect(result.cachePath).toBe(path.join(expectedRoot, '.cache/nf'));
   });
 
+  it('keeps an absolute cachePath as-is', () => {
+    const cachePath = path.resolve('/tmp/nf-cache');
+    expect(
+      normalizeBuilderOptions({ outputPath: 'dist', workspaceRoot: 'apps/remote', cachePath })
+        .cachePath
+    ).toBe(cachePath);
+  });
+
   it('keeps an absolute workspaceRoot as-is', () => {
     const root = path.resolve('/tmp/some-workspace');
     expect(normalizeBuilderOptions({ outputPath: 'dist', workspaceRoot: root }).workspaceRoot).toBe(
