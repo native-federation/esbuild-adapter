@@ -5,6 +5,36 @@ import { createRequire } from 'module';
 import type { FederationInfo, SharedInfo } from '@softarc/native-federation';
 import type * as BuilderModule from './builder.js';
 import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
+import type * as CoreModule from '@softarc/native-federation';
+import type * as InternalModule from '@softarc/native-federation/internal';
+import type { NfFileWatcher, NfFileWatcherOptions } from '@softarc/native-federation/internal';
+
+// Watch mode gets a fake watcher so the specs can fire changes and inspect what is watched;
+// createNfWatcher is only called with watch on, so one-shot builds are unaffected.
+const fakeWatcher = vi.hoisted(() => ({
+  options: undefined as NfFileWatcherOptions | undefined,
+  added: [] as { paths: string[]; poll: boolean }[],
+}));
+
+vi.mock('@softarc/native-federation/internal', async importOriginal => ({
+  ...(await importOriginal<typeof InternalModule>()),
+  createNfWatcher: (options: NfFileWatcherOptions): NfFileWatcher => {
+    fakeWatcher.options = options;
+    return {
+      addPaths: (paths, opts) =>
+        fakeWatcher.added.push({ paths: [paths].flat(), poll: !!opts?.poll }),
+      close: async () => undefined,
+      get: () => new Set(),
+      clear: () => undefined,
+      mutate: () => undefined,
+    };
+  },
+}));
+
+vi.mock('@softarc/native-federation', async importOriginal => {
+  const actual = await importOriginal<typeof CoreModule>();
+  return { ...actual, rebuildForFederation: vi.fn(actual.rebuildForFederation) };
+});
 
 // Minimal workspace: one shared npm package, one exposed module and one tsconfig path mapping.
 function createFixture(root: string): void {
@@ -19,7 +49,7 @@ function createFixture(root: string): void {
     JSON.stringify({
       name: 'fixture',
       version: '1.0.0',
-      dependencies: { 'tiny-dep': '1.2.3', 'modern-dep': '2.0.0' },
+      dependencies: { 'tiny-dep': '1.2.3', 'modern-dep': '2.0.0', 'linked-dep': '1.0.0' },
     })
   );
   write(
@@ -32,6 +62,7 @@ function createFixture(root: string): void {
         paths: {
           '@fixture/ui': ['./libs/ui/index.ts'],
           '@fixture/kit': ['./libs/kit/index.ts'],
+          '@fixture/env': ['./env.ts'],
         },
       },
     })
@@ -145,6 +176,57 @@ function createFixture(root: string): void {
       `  name: 'passthrough',`,
       `  exposes: { './defined': './src/defined.ts' },`,
       `  shared: share({ 'modern-dep': { singleton: true, requiredVersion: 'auto' } }),`,
+      `});`,
+      '',
+    ].join('\n')
+  );
+
+  // A shared package that is npm-linked: node_modules holds a symlink to a checkout outside it.
+  write(
+    'checkouts/linked-dep/package.json',
+    JSON.stringify({ name: 'linked-dep', version: '1.0.0', type: 'module', exports: './index.js' })
+  );
+  write('checkouts/linked-dep/index.js', `export const linked = () => '<LINKED>';\n`);
+  fs.symlinkSync(
+    path.join(root, 'checkouts/linked-dep'),
+    path.join(root, 'node_modules/linked-dep'),
+    'junction'
+  );
+  write(
+    'src/watched.ts',
+    [
+      `import { linked } from 'linked-dep';`,
+      `import { button } from '@fixture/ui';`,
+      `export const render = () => button(linked());`,
+      '',
+    ].join('\n')
+  );
+  write(
+    'federation.watch.config.mjs',
+    [
+      `import { withNativeFederation, share } from '@softarc/native-federation/config';`,
+      `export default withNativeFederation({`,
+      `  name: 'watched',`,
+      `  exposes: { './watched': './src/watched.ts' },`,
+      `  shared: share({ 'linked-dep': { singleton: true, requiredVersion: 'auto' } }),`,
+      `  sharedMappings: ['@fixture/ui'],`,
+      `});`,
+      '',
+    ].join('\n')
+  );
+
+  // A mapping whose entry sits in the workspace root, so its dirname is the root itself.
+  write('env.ts', `export const env = '<ENV>';\n`);
+  write('src/uses-env.ts', `import { env } from '@fixture/env';\nexport const read = () => env;\n`);
+  write(
+    'federation.watch-root.config.mjs',
+    [
+      `import { withNativeFederation } from '@softarc/native-federation/config';`,
+      `export default withNativeFederation({`,
+      `  name: 'watch-root',`,
+      `  exposes: { './uses-env': './src/uses-env.ts' },`,
+      `  shared: {},`,
+      `  sharedMappings: ['@fixture/env'],`,
       `});`,
       '',
     ].join('\n')
@@ -343,5 +425,122 @@ describe('runEsBuildBuilder', () => {
     const code = fs.readFileSync(path.join(outDir, exposed!.outFileName), 'utf-8');
     expect(code).toContain('??');
     expect(fs.existsSync(path.join(outDir, exposed!.outFileName + '.map'))).toBe(false);
+  });
+
+  describe('watch mode', () => {
+    let rebuildForFederation: ReturnType<typeof vi.fn>;
+
+    beforeAll(async () => {
+      rebuildForFederation = vi.mocked(
+        (await import('@softarc/native-federation')).rebuildForFederation
+      );
+    });
+
+    beforeEach(() => {
+      fakeWatcher.options = undefined;
+      fakeWatcher.added = [];
+      rebuildForFederation.mockClear();
+    });
+
+    const watch = (options: Partial<BuilderModule.EsBuildBuilder['options']> = {}) =>
+      runEsBuildBuilder('federation.watch.config.mjs', {
+        workspaceRoot: root,
+        outputPath: 'dist-watch',
+        cachePath: 'node_modules/.cache/nf',
+        tsConfig: 'tsconfig.json',
+        adapterConfig: { plugins: [], frameworks: [] },
+        watch: true,
+        rebuildDelay: 0,
+        ...options,
+      });
+
+    const change = (file: string) => fakeWatcher.options!.onChange!(file);
+    const watched = (poll: boolean) =>
+      fakeWatcher.added.filter(a => a.poll === poll).flatMap(a => a.paths);
+    const posix = (p: string) => p.split(path.sep).join('/');
+
+    it('watches the shared-mapping dirs and rebuilds for a file added there', async () => {
+      const builder = await watch();
+      try {
+        expect(watched(false)).toContain(posix(path.join(root, 'libs/ui')));
+
+        const added = posix(path.join(root, 'libs/ui/new-file.ts'));
+        change(added);
+        await vi.waitFor(() => expect(rebuildForFederation).toHaveBeenCalledTimes(1));
+        expect(rebuildForFederation.mock.calls[0]![3]).toEqual([added]);
+      } finally {
+        await builder.close();
+      }
+    });
+
+    it('ignores changes under the output path', async () => {
+      const builder = await watch();
+      try {
+        change(posix(path.join(root, 'dist-watch/remoteEntry.json')));
+        await new Promise(resolve => setTimeout(resolve, 100));
+        expect(rebuildForFederation).not.toHaveBeenCalled();
+      } finally {
+        await builder.close();
+      }
+    });
+
+    it('does not watch the workspace root for a root-level mapping, nor rebuild for node_modules', async () => {
+      const builder = await runEsBuildBuilder('federation.watch-root.config.mjs', {
+        workspaceRoot: root,
+        outputPath: 'dist-watch-root',
+        cachePath: 'node_modules/.cache/nf-watch-root',
+        tsConfig: 'tsconfig.json',
+        adapterConfig: { plugins: [], frameworks: [] },
+        watch: true,
+        rebuildDelay: 0,
+      });
+      try {
+        expect(watched(false)).not.toContain(posix(root));
+        // Still watched as a file; esbuild's metafile paths are cwd-relative, and cwd is root here.
+        expect(watched(false).map(p => path.resolve(p))).toContain(path.join(root, 'env.ts'));
+
+        change(posix(path.join(root, 'node_modules/.cache/nf-watch-root/watch-root/x.json')));
+        await new Promise(resolve => setTimeout(resolve, 100));
+        expect(rebuildForFederation).not.toHaveBeenCalled();
+
+        change(posix(path.join(root, 'env.ts')));
+        await vi.waitFor(() => expect(rebuildForFederation).toHaveBeenCalledTimes(1));
+      } finally {
+        await builder.close();
+      }
+    });
+
+    it('polls linked shared packages and rebuilds when they change, with watchLinkedDeps', async () => {
+      const builder = await watch({ watchLinkedDeps: true });
+      try {
+        const linkedDir = posix(path.join(root, 'checkouts/linked-dep'));
+        expect(watched(true)).toEqual([linkedDir]);
+
+        change(`${linkedDir}/index.js`);
+        await vi.waitFor(() => expect(rebuildForFederation).toHaveBeenCalledTimes(1));
+        expect(rebuildForFederation.mock.calls[0]![3]).toEqual([`${linkedDir}/index.js`]);
+      } finally {
+        await builder.close();
+      }
+    });
+
+    it('leaves linked shared packages unwatched by default', async () => {
+      const builder = await watch();
+      try {
+        expect(watched(true)).toEqual([]);
+      } finally {
+        await builder.close();
+      }
+    });
+
+    it('hands a custom watch port to the file watcher', async () => {
+      const watcher = vi.fn();
+      const builder = await watch({ watcher });
+      try {
+        expect(fakeWatcher.options!.watch).toBe(watcher);
+      } finally {
+        await builder.close();
+      }
+    });
   });
 });

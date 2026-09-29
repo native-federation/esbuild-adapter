@@ -1,3 +1,4 @@
+import type { WatchPort } from '@softarc/native-federation/internal';
 import type { EsBuildAdapterConfig } from './adapter-config.contract.js';
 
 export interface EsBuildBuilderOptions {
@@ -10,6 +11,8 @@ export interface EsBuildBuilderOptions {
   packageJson?: string;
   dev?: boolean;
   watch?: boolean;
+  watchLinkedDeps?: boolean;
+  watcher?: WatchPort['watch'];
   verbose?: boolean;
   rebuildDelay?: number;
   cacheExternalArtifacts?: boolean;
@@ -26,6 +29,8 @@ export interface NormalizedEsBuildBuilderOptions {
   packageJson?: string;
   dev: boolean;
   watch: boolean;
+  watchLinkedDeps: boolean;
+  watcher?: WatchPort['watch'];
   verbose: boolean;
   rebuildDelay: number;
   cacheExternalArtifacts: boolean;

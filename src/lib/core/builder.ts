@@ -10,9 +10,11 @@ import {
 import {
   AbortedError,
   createNfWatcher,
+  linkedSharedDirs,
   logger,
   RebuildQueue,
   setLogLevel,
+  sharedMappingDirs,
   syncNfFileWatcher,
   type NfFileWatcher,
 } from '@softarc/native-federation/internal';
@@ -24,6 +26,7 @@ import type {
 import type { EsbuildBundlerCache } from '../domain/adapter-context.contract.js';
 import { createEsBuildAdapter } from './esbuild-adapter.js';
 import { normalizeBuilderOptions } from './normalize-options.js';
+import { createChangeFilter, mappingWatchDirs } from '../utils/watch-filter.js';
 
 export interface EsBuildBuilder {
   federationInfo: FederationInfo;
@@ -53,6 +56,7 @@ export async function runEsBuildBuilder(
       tsConfig: options.tsConfig,
       verbose: options.verbose,
       watch: options.watch,
+      watchLinkedDeps: options.watchLinkedDeps,
       dev: options.dev,
       entryPoints: options.entryPoints,
       packageJson: options.packageJson,
@@ -81,19 +85,32 @@ export async function runEsBuildBuilder(
     };
   }
 
+  const linkedDirs = linkedSharedDirs(normalized.config, normalized.options);
+  const isIgnored = createChangeFilter({
+    workspaceRoot: normalized.options.workspaceRoot,
+    outputPath: normalized.options.outputPath,
+    cachePath: options.cachePath,
+  });
+
   const rebuildQueue = new RebuildQueue();
   const pendingChanges = new Set<string>();
   let closed = false;
 
   const watcher: NfFileWatcher = createNfWatcher({
+    watch: options.watcher,
     onChange: changedPath => {
       if (closed) return;
+      if (isIgnored(changedPath)) return;
       pendingChanges.add(changedPath);
       void triggerRebuild();
     },
   });
 
-  syncNfFileWatcher(watcher, bundlerCache);
+  // Also covers files created in a mapping lib after the last build.
+  watcher.addPaths(
+    mappingWatchDirs(sharedMappingDirs(normalized.config), normalized.options.workspaceRoot)
+  );
+  syncNfFileWatcher(watcher, bundlerCache, linkedDirs);
 
   async function triggerRebuild(): Promise<void> {
     await rebuildQueue.track(async signal => {
@@ -115,7 +132,7 @@ export async function runEsBuildBuilder(
           signal
         );
 
-        syncNfFileWatcher(watcher, bundlerCache);
+        syncNfFileWatcher(watcher, bundlerCache, linkedDirs);
         logger.info('Federation rebuild done.');
         return { success: true };
       } catch (error) {

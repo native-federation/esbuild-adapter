@@ -32,6 +32,8 @@ export function normalizeBuilderOptions(
     packageJson: options.packageJson,
     dev: !!options.dev,
     watch: !!options.watch,
+    watchLinkedDeps: options.watchLinkedDeps === true,
+    watcher: options.watcher,
     verbose: !!options.verbose,
     rebuildDelay: options.rebuildDelay ?? 50,
     cacheExternalArtifacts: options.cacheExternalArtifacts !== false,
