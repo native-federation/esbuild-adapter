@@ -28,18 +28,18 @@ export function readKeyedVersions(): KeyedVersions {
 }
 
 // Keyed on the adapter-derived npm bundle options for both modes, so any new option reaches the
-// key by default. Plugins can only be keyed by name: JSON drops their setup functions.
+// key by default. Plugins are reduced to their name: the rest is behaviour or per-process state.
 export function createExternalsCacheKey(
   config: EsBuildAdapterConfig,
   versions: KeyedVersions = readKeyedVersions()
 ): ExternalsCacheKey {
-  const optionsFor = (dev: boolean) =>
-    stableStringify(
-      nodeModulesBuildOptions(
-        resolveFrameworkConfig(config, dev, NODE_MODULES_RESOLVE_EXTENSIONS),
-        dev
-      )
+  const optionsFor = (dev: boolean) => {
+    const { plugins, ...options } = nodeModulesBuildOptions(
+      resolveFrameworkConfig(config, dev, NODE_MODULES_RESOLVE_EXTENSIONS),
+      dev
     );
+    return stableStringify({ ...options, plugins: plugins.map(p => p.name) });
+  };
 
   return {
     adapter: versions.adapter,

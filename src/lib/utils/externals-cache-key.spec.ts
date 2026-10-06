@@ -103,6 +103,16 @@ describe('createExternalsCacheKey', () => {
     expect(keyOf({ plugins: [plugin('a')] })).toBe(keyOf({ plugins: [plugin('a')] }));
   });
 
+  // Plugin objects may carry circular references or per-run state; only the name may reach the key.
+  it('ignores everything on a plugin but its name', () => {
+    const stateful = { ...plugin('a'), startedAt: Date.now(), self: undefined as unknown };
+    stateful.self = stateful;
+    expect(keyOf({ plugins: [stateful] })).toBe(keyOf({ plugins: [plugin('a')] }));
+    expect(keyOf({ frameworks: [{ name: 'fw', esbuildPlugins: [stateful] }] })).toBe(
+      keyOf({ frameworks: [{ name: 'fw', esbuildPlugins: [plugin('a')] }] })
+    );
+  });
+
   // These only reach source-code bundles, so they must not invalidate shared externals.
   it('ignores define and preserveSymlinks', () => {
     const config: EsBuildAdapterConfig = {
