@@ -2,6 +2,11 @@ import { createRequire } from 'node:module';
 import * as esbuild from 'esbuild';
 import type { ExternalsCacheKey } from '@softarc/native-federation/domain';
 import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
+import { resolveFrameworkConfig } from '../core/resolve-framework-config.js';
+import {
+  nodeModulesBuildOptions,
+  NODE_MODULES_RESOLVE_EXTENSIONS,
+} from './node-modules-bundler.js';
 
 export interface KeyedVersions {
   adapter: string;
@@ -22,36 +27,36 @@ export function readKeyedVersions(): KeyedVersions {
   };
 }
 
-// Only options that reach the shared npm package bundles belong here; define and
-// preserveSymlinks are applied to source code only (see node-modules-bundler.ts).
+// Keyed on the adapter-derived npm bundle options for both modes, so any new option reaches the
+// key by default. Plugins can only be keyed by name: JSON drops their setup functions.
 export function createExternalsCacheKey(
-  config: Pick<EsBuildAdapterConfig, 'target' | 'sourcemap' | 'fileReplacements' | 'loader'>,
+  config: EsBuildAdapterConfig,
   versions: KeyedVersions = readKeyedVersions()
 ): ExternalsCacheKey {
-  const options: Record<string, string | boolean> = { esbuild: versions.esbuild };
-
-  if (config.target !== undefined) {
-    options['target'] = [config.target].flat().sort().join(',');
-  }
-  if (config.sourcemap !== undefined) {
-    options['sourcemap'] = config.sourcemap;
-  }
-  if (config.fileReplacements && Object.keys(config.fileReplacements).length) {
-    options['fileReplacements'] = stableEntries(config.fileReplacements, r =>
-      typeof r === 'string' ? r : r.file
+  const optionsFor = (dev: boolean) =>
+    stableStringify(
+      nodeModulesBuildOptions(
+        resolveFrameworkConfig(config, dev, NODE_MODULES_RESOLVE_EXTENSIONS),
+        dev
+      )
     );
-  }
-  if (config.loader && Object.keys(config.loader).length) {
-    options['loader'] = stableEntries(config.loader, l => l);
-  }
 
-  return { adapter: versions.adapter, options };
+  return {
+    adapter: versions.adapter,
+    options: { esbuild: versions.esbuild, dev: optionsFor(true), prod: optionsFor(false) },
+  };
 }
 
-function stableEntries<T>(record: Record<string, T>, toValue: (value: T) => string): string {
-  return JSON.stringify(
-    Object.keys(record)
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortKeys(value));
+}
+
+function sortKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeys);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value)
       .sort()
-      .map(key => [key, toValue(record[key]!)])
+      .map(key => [key, sortKeys((value as Record<string, unknown>)[key])])
   );
 }

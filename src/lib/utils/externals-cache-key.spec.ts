@@ -2,6 +2,9 @@ import * as esbuild from 'esbuild';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
+import type { NfFrameworkPlugin } from '../domain/framework-plugin.contract.js';
+import { createEsBuildAdapter } from '../core/esbuild-adapter.js';
+import { reactFrameworkPlugin } from '../frameworks/react.js';
 import {
   createExternalsCacheKey,
   readKeyedVersions,
@@ -13,13 +16,10 @@ const versions: KeyedVersions = {
   esbuild: '0.28.2',
 };
 
-type KeyedConfig = Pick<
-  EsBuildAdapterConfig,
-  'target' | 'sourcemap' | 'fileReplacements' | 'loader'
->;
+const keyOf = (config: Partial<EsBuildAdapterConfig> = {}, v: Partial<KeyedVersions> = {}) =>
+  JSON.stringify(createExternalsCacheKey({ plugins: [], ...config }, { ...versions, ...v }));
 
-const keyOf = (config: KeyedConfig = {}, v: Partial<KeyedVersions> = {}) =>
-  JSON.stringify(createExternalsCacheKey(config, { ...versions, ...v }));
+const plugin = (name: string): esbuild.Plugin => ({ name, setup: () => {} });
 
 describe('createExternalsCacheKey', () => {
   const baseline = keyOf();
@@ -28,11 +28,11 @@ describe('createExternalsCacheKey', () => {
     expect(keyOf()).toBe(baseline);
   });
 
-  it('leaves out unset options', () => {
-    expect(createExternalsCacheKey({}, versions)).toEqual({
-      adapter: versions.adapter,
-      options: { esbuild: versions.esbuild },
-    });
+  it('keys the npm bundle options per mode', () => {
+    const key = createExternalsCacheKey({ plugins: [] }, versions);
+    expect(key.adapter).toBe(versions.adapter);
+    expect(Object.keys(key.options!)).toEqual(['esbuild', 'dev', 'prod']);
+    expect(key.options!['dev']).not.toBe(key.options!['prod']);
   });
 
   it('changes with the adapter version', () => {
@@ -49,17 +49,6 @@ describe('createExternalsCacheKey', () => {
     expect(keyOf({ target: ['chrome120', 'firefox120'] })).not.toBe(
       keyOf({ target: ['chrome120'] })
     );
-  });
-
-  // esbuild doesn't care about the order of targets, so neither should the cache.
-  it('ignores the order of the target list', () => {
-    expect(keyOf({ target: ['firefox120', 'chrome120'] })).toBe(
-      keyOf({ target: ['chrome120', 'firefox120'] })
-    );
-  });
-
-  it('treats a single target like a one-element list', () => {
-    expect(keyOf({ target: 'es2022' })).toBe(keyOf({ target: ['es2022'] }));
   });
 
   it('changes with the sourcemap option', () => {
@@ -107,6 +96,13 @@ describe('createExternalsCacheKey', () => {
     expect(keyOf({ fileReplacements: {}, loader: {} })).toBe(baseline);
   });
 
+  // Plugins are opaque functions; their name is all that survives serialisation.
+  it('changes with the plugin names', () => {
+    expect(keyOf({ plugins: [plugin('a')] })).not.toBe(baseline);
+    expect(keyOf({ plugins: [plugin('a')] })).not.toBe(keyOf({ plugins: [plugin('b')] }));
+    expect(keyOf({ plugins: [plugin('a')] })).toBe(keyOf({ plugins: [plugin('a')] }));
+  });
+
   // These only reach source-code bundles, so they must not invalidate shared externals.
   it('ignores define and preserveSymlinks', () => {
     const config: EsBuildAdapterConfig = {
@@ -115,6 +111,57 @@ describe('createExternalsCacheKey', () => {
       preserveSymlinks: true,
     };
     expect(keyOf(config)).toBe(baseline);
+  });
+});
+
+describe('createExternalsCacheKey with frameworks', () => {
+  const react = () => keyOf({ frameworks: [reactFrameworkPlugin()] });
+
+  it('is stable across separate preset instances', () => {
+    expect(react()).toBe(react());
+  });
+
+  // The React preset swaps in CJS builds and the CommonJS plugin; dropping it must rebuild externals.
+  it('changes when the React preset is removed', () => {
+    expect(react()).not.toBe(keyOf({ frameworks: [] }));
+  });
+
+  it('changes when a user replacement overrides a framework replacement', () => {
+    expect(
+      keyOf({
+        frameworks: [reactFrameworkPlugin()],
+        fileReplacements: { 'node_modules/react/index.js': 'src/react-shim.js' },
+      })
+    ).not.toBe(react());
+  });
+
+  it('changes with needsCommonJsPlugin', () => {
+    const fw = (needsCommonJsPlugin: boolean): NfFrameworkPlugin => ({
+      name: 'fw',
+      needsCommonJsPlugin,
+    });
+    expect(keyOf({ frameworks: [fw(true)] })).not.toBe(keyOf({ frameworks: [fw(false)] }));
+  });
+
+  it('changes with framework resolveExtensions and esbuildPlugins', () => {
+    const base = keyOf({ frameworks: [{ name: 'fw' }] });
+    expect(keyOf({ frameworks: [{ name: 'fw', resolveExtensions: ['.vue'] }] })).not.toBe(base);
+    expect(keyOf({ frameworks: [{ name: 'fw', esbuildPlugins: [plugin('p')] }] })).not.toBe(base);
+  });
+
+  // The key follows the merged result, not where an option came from.
+  it('treats a framework loader like the same user loader', () => {
+    expect(keyOf({ frameworks: [{ name: 'fw', loader: { '.svg': 'text' } }] })).toBe(
+      keyOf({ frameworks: [{ name: 'fw' }], loader: { '.svg': 'text' } })
+    );
+  });
+
+  // createEsBuildAdapter applies the React default before building the key.
+  it('keys an unset frameworks option like the React preset', () => {
+    const adapterKey = (frameworks?: NfFrameworkPlugin[]) =>
+      JSON.stringify(createEsBuildAdapter({ plugins: [], frameworks }).externalsCacheKey);
+    expect(adapterKey()).toBe(adapterKey([reactFrameworkPlugin()]));
+    expect(adapterKey()).not.toBe(adapterKey([]));
   });
 });
 
