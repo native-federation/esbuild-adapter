@@ -232,6 +232,35 @@ function createFixture(root: string): void {
     ].join('\n')
   );
 
+  // A monorepo app built with its own folder as workspaceRoot while cwd stays at the repo root.
+  // It has no tsconfig of its own: core reads the mappings from the root one it finds from cwd.
+  write(
+    'apps/remote/package.json',
+    JSON.stringify({ name: 'remote', version: '1.0.0', dependencies: { 'tiny-dep': '1.2.3' } })
+  );
+  write(
+    'apps/remote/src/component.ts',
+    [
+      `import { greet } from 'tiny-dep';`,
+      `import { button } from '@fixture/ui';`,
+      `export const render = () => button(greet('remote'));`,
+      '',
+    ].join('\n')
+  );
+  write(
+    'apps/remote/federation.config.mjs',
+    [
+      `import { withNativeFederation, share } from '@softarc/native-federation/config';`,
+      `export default withNativeFederation({`,
+      `  name: 'remote',`,
+      `  exposes: { './component': './src/component.ts' },`,
+      `  shared: share({ 'tiny-dep': { singleton: true, requiredVersion: 'auto' } }),`,
+      `  sharedMappings: ['@fixture/ui'],`,
+      `});`,
+      '',
+    ].join('\n')
+  );
+
   // federation.config.mjs imports core; link the adapter's copy so it resolves from the tmp dir.
   const require = createRequire(import.meta.url);
   const corePkg = path.dirname(require.resolve('@softarc/native-federation/package.json'));
@@ -425,6 +454,33 @@ describe('runEsBuildBuilder', () => {
     const code = fs.readFileSync(path.join(outDir, exposed!.outFileName), 'utf-8');
     expect(code).toContain('??');
     expect(fs.existsSync(path.join(outDir, exposed!.outFileName + '.map'))).toBe(false);
+  });
+
+  it('writes all output under <workspaceRoot>/<outputPath> when workspaceRoot is not cwd', async () => {
+    const appRoot = path.join(root, 'apps/remote');
+    const builder = await runEsBuildBuilder('federation.config.mjs', {
+      workspaceRoot: appRoot,
+      outputPath: 'dist-app',
+      cachePath: 'node_modules/.cache/nf',
+      adapterConfig: { plugins: [], frameworks: [] },
+    });
+    await builder.close();
+
+    const outDir = path.join(appRoot, 'dist-app');
+    const remoteEntry = JSON.parse(
+      fs.readFileSync(path.join(outDir, 'remoteEntry.json'), 'utf-8')
+    ) as FederationInfo;
+    const shared = remoteEntry.shared as SharedInfo[];
+    const outFiles = [
+      ...remoteEntry.exposes.map(e => e.outFileName),
+      shared.find(s => s.packageName === 'tiny-dep')!.outFileName,
+      shared.find(s => s.packageName === '@fixture/ui')!.outFileName,
+    ];
+    for (const file of outFiles) {
+      expect(fs.existsSync(path.join(outDir, file))).toBe(true);
+    }
+    // Before native-federation-core#156 the exposes landed in <cwd>/<outputPath>.
+    expect(fs.existsSync(path.join(root, 'dist-app'))).toBe(false);
   });
 
   describe('watch mode', () => {
