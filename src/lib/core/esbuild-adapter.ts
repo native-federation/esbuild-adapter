@@ -25,50 +25,38 @@ export function createEsBuildAdapter(
     ...config,
     frameworks: config.frameworks ?? [reactFrameworkPlugin()],
   });
-  const bundleContextCache = new Map<string, CachedContext>();
+  const contexts = new Map<string, CachedContext>();
 
+  // Leaves the esbuild service running: stopping it would break every other context in the process.
   const dispose = async (name?: string): Promise<void> => {
-    if (name) {
-      const entry = bundleContextCache.get(name);
-      if (!entry) {
-        throw new Error(`Could not dispose of non-existing build '${name}'`);
-      }
-      await entry.ctx.dispose();
-      bundleContextCache.delete(name);
-      return;
-    }
-
-    const disposals: Promise<void>[] = [];
-    for (const [, entry] of bundleContextCache) {
-      disposals.push(entry.ctx.dispose());
-    }
-    bundleContextCache.clear();
-    await Promise.all(disposals);
-
-    await esbuild.stop();
+    const names = name === undefined ? [...contexts.keys()] : [name];
+    await Promise.all(
+      names.map(async n => {
+        const entry = contexts.get(n);
+        contexts.delete(n);
+        await entry?.ctx.dispose();
+      })
+    );
   };
 
   const setup = async (
     name: string,
     options: NFBuildAdapterOptions<EsbuildBundlerCache>
   ): Promise<void> => {
-    if (bundleContextCache.has(name)) {
-      return;
-    }
+    // A context left over from a failed build was set up with options that may be stale.
+    await dispose(name);
 
     // Read per setup: hosts may chdir into the project after creating the adapter.
     const workingDir = path.resolve(workspaceRoot ?? process.cwd());
-    const ctx = await esbuild.context(
-      options.isMappingOrExposed
-        ? sourceBuildOptions(options, resolved, workingDir)
-        : sharedBuildOptions(options, resolved, workingDir)
-    );
+    const buildOptions = options.isMappingOrExposed
+      ? sourceBuildOptions(options, resolved, workingDir)
+      : sharedBuildOptions(options, resolved, workingDir);
 
-    bundleContextCache.set(name, {
-      ctx,
+    contexts.set(name, {
+      ctx: await esbuild.context(buildOptions),
+      name,
       outdir: options.outdir,
       dev: !!options.dev,
-      name,
       isMappingOrExposed: options.isMappingOrExposed,
       bundlerCache: options.cache?.bundlerCache,
       workingDir,
@@ -77,53 +65,46 @@ export function createEsBuildAdapter(
 
   const build = async (
     name: string,
-    opts: { modifiedFiles?: string[]; signal?: AbortSignal } = {}
+    { modifiedFiles, signal }: { modifiedFiles?: string[]; signal?: AbortSignal } = {}
   ): Promise<NFBuildAdapterResult[]> => {
-    const entry = bundleContextCache.get(name);
+    const entry = contexts.get(name);
     if (!entry) {
       throw new Error(`No context found for build "${name}". Call setup() first.`);
     }
-
-    if (opts.signal?.aborted) {
+    if (signal?.aborted) {
       throw new AbortedError('[build] Aborted before rebuild');
     }
 
-    if (opts.modifiedFiles && entry.bundlerCache) {
-      for (const file of opts.modifiedFiles) entry.bundlerCache.delete(file);
-    }
+    for (const file of modifiedFiles ?? []) entry.bundlerCache?.delete(file);
 
-    const cancelBuild = () => {
-      try {
-        entry.ctx.cancel();
-      } catch {
-        // noop — context may already be cancelled/disposed
-      }
-    };
-    opts.signal?.addEventListener('abort', cancelBuild, { once: true });
+    const cancel = () => void entry.ctx.cancel().catch(() => undefined);
+    signal?.addEventListener('abort', cancel, { once: true });
 
+    let result: esbuild.BuildResult;
     try {
-      const result = await entry.ctx.rebuild();
-      const writtenFiles = writeResult(result, entry.outdir);
-
-      if (entry.bundlerCache && result.metafile) {
-        // Metafile paths are relative to absWorkingDir; the keys must be absolute posix paths to
-        // match the changes the watcher reports.
-        for (const input of Object.keys(result.metafile.inputs)) {
-          if (isVirtualInput(input)) continue;
-          const file = path.resolve(entry.workingDir, input).split(path.sep).join('/');
-          entry.bundlerCache.set(file, null);
-        }
-      }
-
-      return writtenFiles.map(fileName => ({ fileName }));
+      result = await entry.ctx.rebuild();
     } catch (error) {
-      if (opts.signal?.aborted && error instanceof Error && error.message.includes('canceled')) {
-        throw new AbortedError('[build] ESBuild rebuild was canceled.');
-      }
-      throw error;
+      throw signal?.aborted ? new AbortedError('[build] esbuild rebuild was canceled') : error;
     } finally {
-      opts.signal?.removeEventListener('abort', cancelBuild);
+      signal?.removeEventListener('abort', cancel);
     }
+    if (signal?.aborted) {
+      throw new AbortedError('[build] Aborted after rebuild');
+    }
+
+    const writtenFiles = writeResult(result, entry.outdir);
+
+    if (entry.bundlerCache && result.metafile) {
+      // Metafile paths are relative to absWorkingDir; the keys must be absolute posix paths to
+      // match the changes the watcher reports.
+      for (const input of Object.keys(result.metafile.inputs)) {
+        if (isVirtualInput(input)) continue;
+        const file = path.resolve(entry.workingDir, input).split(path.sep).join('/');
+        entry.bundlerCache.set(file, null);
+      }
+    }
+
+    return writtenFiles.map(fileName => ({ fileName }));
   };
 
   return { externalsCacheKey: createExternalsCacheKey(resolved), setup, build, dispose };
