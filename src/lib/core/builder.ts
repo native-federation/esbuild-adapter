@@ -97,6 +97,7 @@ export async function runEsBuildBuilder(
   const rebuildQueue = new RebuildQueue();
   const pendingChanges = new Set<string>();
   let lastRebuild: Promise<unknown> = Promise.resolve();
+  let closing: Promise<void> | undefined;
   let closed = false;
 
   const watcher: NfFileWatcher = createNfWatcher({
@@ -118,6 +119,7 @@ export async function runEsBuildBuilder(
     let files: string[] = [];
     try {
       await abortableDelay(Math.max(10, options.rebuildDelay), signal);
+      // A rebuild queued behind one that close() aborted gets a fresh, unaborted signal.
       if (closed || signal.aborted) throw new AbortedError('[builder] Aborted before rebuild');
 
       files = [...pendingChanges];
@@ -155,12 +157,15 @@ export async function runEsBuildBuilder(
     },
     externals,
     options,
-    async close() {
-      closed = true;
-      rebuildQueue.dispose();
-      await lastRebuild;
-      await watcher.close();
-      await adapter.dispose();
+    close() {
+      closing ??= (async () => {
+        closed = true;
+        rebuildQueue.dispose();
+        await lastRebuild;
+        await watcher.close();
+        await adapter.dispose();
+      })();
+      return closing;
     },
   };
 }

@@ -18,6 +18,7 @@ import {
 const fakeWatcher = vi.hoisted(() => ({
   options: undefined as NfFileWatcherOptions | undefined,
   added: [] as { paths: string[]; poll: boolean }[],
+  closes: 0,
 }));
 
 vi.mock('@softarc/native-federation/internal', async importOriginal => ({
@@ -27,7 +28,9 @@ vi.mock('@softarc/native-federation/internal', async importOriginal => ({
     return {
       addPaths: (paths, opts) =>
         fakeWatcher.added.push({ paths: [paths].flat(), poll: !!opts?.poll }),
-      close: async () => undefined,
+      close: async () => {
+        fakeWatcher.closes++;
+      },
       get: () => new Set(),
       clear: () => undefined,
       mutate: () => undefined,
@@ -499,6 +502,7 @@ describe('runEsBuildBuilder', () => {
     beforeEach(() => {
       fakeWatcher.options = undefined;
       fakeWatcher.added = [];
+      fakeWatcher.closes = 0;
       rebuildForFederation.mockClear();
     });
 
@@ -641,6 +645,18 @@ describe('runEsBuildBuilder', () => {
       await builder.close();
 
       expect(settled).toBe(true);
+    });
+
+    it('closes the watcher once when close() is called repeatedly', async () => {
+      const builder = await watch();
+
+      const first = builder.close();
+      const second = builder.close();
+      expect(second).toBe(first);
+      await first;
+      await builder.close();
+
+      expect(fakeWatcher.closes).toBe(1);
     });
 
     it('hands a custom watch port to the file watcher', async () => {
