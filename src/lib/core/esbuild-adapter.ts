@@ -9,7 +9,11 @@ import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js'
 import type { CachedContext, EsbuildBundlerCache } from '../domain/adapter-context.contract.js';
 import { writeResult } from '../utils/write-result.js';
 import { createSourceCodeEsbuildContext } from '../utils/source-code-bundler.js';
-import { createNodeModulesEsbuildContext } from '../utils/node-modules-bundler.js';
+import {
+  createNodeModulesEsbuildContext,
+  NODE_MODULES_RESOLVE_EXTENSIONS,
+} from '../utils/node-modules-bundler.js';
+import { createExternalsCacheKey } from '../utils/externals-cache-key.js';
 import { reactFrameworkPlugin } from '../frameworks/react.js';
 import { resolveFrameworkConfig } from './resolve-framework-config.js';
 
@@ -18,6 +22,8 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
     config.frameworks = [reactFrameworkPlugin()];
   }
 
+  // Core reads externalsCacheKey before setup(), so it is derived from the config up front.
+  const externalsCacheKey = createExternalsCacheKey(config);
   const bundleContextCache = new Map<string, CachedContext>();
 
   const dispose = async (name?: string): Promise<void> => {
@@ -82,7 +88,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
           entryPoints,
           external,
           outdir,
-          resolveFrameworkConfig(config, dev, ['.mjs', '.js', '.cjs']),
+          resolveFrameworkConfig(config, dev, NODE_MODULES_RESOLVE_EXTENSIONS),
           dev,
           hash,
           chunks,
@@ -146,5 +152,5 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
     }
   };
 
-  return { setup, build, dispose };
+  return { externalsCacheKey, setup, build, dispose };
 }

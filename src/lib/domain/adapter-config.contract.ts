@@ -10,9 +10,8 @@ export interface EsBuildAdapterConfig {
   fileReplacements?: Record<string, string | ReplacementConfig>;
   loader?: { [ext: string]: esbuild.Loader };
   frameworks?: NfFrameworkPlugin[];
-  // Core's externals cache key can't see adapter options (native-federation-core#152). define and
-  // preserveSymlinks therefore skip shared npm packages; target and sourcemap do reach them, so
-  // changing those needs a cleared cache.
+  // define and preserveSymlinks skip shared npm packages; see externals-cache-key.ts for what
+  // reaches them and invalidates the externals cache.
   define?: Record<string, string>;
   preserveSymlinks?: boolean;
   target?: string | string[];

@@ -21,11 +21,11 @@
     "esbuild": "^0.28.2"
   },
   "peerDependencies": {
-    "@softarc/native-federation": "~4.7.0"
+    "@softarc/native-federation": "~4.7.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@softarc/native-federation": "~4.7.0",
+    "@softarc/native-federation": "~4.7.1",
     "@types/node": "~24.10.15",
     "@vitest/coverage-v8": "^4.1.11",
     "@vitest/ui": "^4.1.11",

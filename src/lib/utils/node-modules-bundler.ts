@@ -5,6 +5,35 @@ import type { ReplacementConfig } from '../domain/adapter-config.contract.js';
 import type { ResolvedFrameworkConfig } from '../core/resolve-framework-config.js';
 import { createCommonJsPlugin } from './commonjs-plugin.js';
 
+export const NODE_MODULES_RESOLVE_EXTENSIONS = ['.mjs', '.js', '.cjs'];
+
+// Everything here is derived from the adapter config, so the externals cache key is built from
+// this output (see externals-cache-key.ts). Options core passes in stay out of it.
+export function nodeModulesBuildOptions(config: ResolvedFrameworkConfig, dev: boolean) {
+  const env = dev ? 'development' : 'production';
+
+  return {
+    fileReplacements: normalize(config.fileReplacements ?? {}),
+    needsCommonJsPlugin: config.needsCommonJsPlugin,
+    plugins: config.plugins,
+    write: false,
+    bundle: true,
+    format: 'esm',
+    sourcemap: config.sourcemap ?? dev,
+    minify: !dev,
+    target: config.target,
+    loader: config.loader,
+    define: {
+      'process.env.NODE_ENV': `"${env}"`,
+    },
+    resolveExtensions: config.resolveExtensions,
+  } satisfies Omit<esbuild.BuildOptions, 'plugins'> & {
+    fileReplacements: Record<string, ReplacementConfig>;
+    needsCommonJsPlugin: boolean;
+    plugins: esbuild.Plugin[];
+  };
+}
+
 export async function createNodeModulesEsbuildContext(
   entryPoints: EntryPoint[],
   external: string[],
@@ -15,43 +44,29 @@ export async function createNodeModulesEsbuildContext(
   chunks: boolean,
   platform: 'browser' | 'node'
 ): Promise<esbuild.BuildContext> {
-  const env = dev ? 'development' : 'production';
+  const { fileReplacements, needsCommonJsPlugin, plugins, ...options } = nodeModulesBuildOptions(
+    config,
+    dev
+  );
 
-  // Apply file replacements to entry points
-  if (config.fileReplacements) {
-    const normalizedReplacements = normalize(config.fileReplacements);
+  if (Object.keys(fileReplacements).length) {
     for (const entryPoint of entryPoints) {
-      entryPoint.fileName = replaceEntryPoint(entryPoint.fileName, normalizedReplacements);
+      entryPoint.fileName = replaceEntryPoint(entryPoint.fileName, fileReplacements);
     }
   }
 
-  const plugins: esbuild.Plugin[] = [...config.plugins];
-  if (config.needsCommonJsPlugin) {
-    plugins.unshift(createCommonJsPlugin(external));
-  }
-
   return esbuild.context({
+    ...options,
     entryPoints: entryPoints.map(ep => ({
       in: ep.fileName,
       out: path.parse(ep.outName).name,
     })),
-    write: false,
     outdir,
     entryNames: hash ? '[name]-[hash]' : '[name]',
     external,
-    bundle: true,
-    sourcemap: config.sourcemap ?? dev,
-    minify: !dev,
-    format: 'esm',
     splitting: chunks,
-    target: config.target,
     platform,
-    plugins,
-    loader: config.loader,
-    define: {
-      'process.env.NODE_ENV': `"${env}"`,
-    },
-    resolveExtensions: config.resolveExtensions,
+    plugins: needsCommonJsPlugin ? [createCommonJsPlugin(external), ...plugins] : plugins,
   });
 }
 
