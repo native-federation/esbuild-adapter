@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises';
 import { build } from 'esbuild';
 import { glob } from 'tinyglobby';
 
@@ -7,6 +8,9 @@ import { glob } from 'tinyglobby';
 // graph mirrors the source layout and keeps its explicit `./*.js` import
 // specifiers intact. Type declarations are emitted separately by
 // `tsc -p tsconfig.build.json` (esbuild does not generate `.d.ts`).
+// Otherwise files of deleted modules stay in dist and get published.
+await rm('dist', { recursive: true, force: true });
+
 const entryPoints = await glob('src/**/*.ts', {
   ignore: ['src/**/*.spec.ts', 'src/**/*.test.ts', 'src/**/__test-helpers__/**'],
 });

@@ -7,13 +7,18 @@ import type * as BuilderModule from './builder.js';
 import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
 import type * as CoreModule from '@softarc/native-federation';
 import type * as InternalModule from '@softarc/native-federation/internal';
-import type { NfFileWatcher, NfFileWatcherOptions } from '@softarc/native-federation/internal';
+import {
+  AbortedError,
+  type NfFileWatcher,
+  type NfFileWatcherOptions,
+} from '@softarc/native-federation/internal';
 
 // Watch mode gets a fake watcher so the specs can fire changes and inspect what is watched;
 // createNfWatcher is only called with watch on, so one-shot builds are unaffected.
 const fakeWatcher = vi.hoisted(() => ({
   options: undefined as NfFileWatcherOptions | undefined,
   added: [] as { paths: string[]; poll: boolean }[],
+  closes: 0,
 }));
 
 vi.mock('@softarc/native-federation/internal', async importOriginal => ({
@@ -23,7 +28,9 @@ vi.mock('@softarc/native-federation/internal', async importOriginal => ({
     return {
       addPaths: (paths, opts) =>
         fakeWatcher.added.push({ paths: [paths].flat(), poll: !!opts?.poll }),
-      close: async () => undefined,
+      close: async () => {
+        fakeWatcher.closes++;
+      },
       get: () => new Set(),
       clear: () => undefined,
       mutate: () => undefined,
@@ -495,6 +502,7 @@ describe('runEsBuildBuilder', () => {
     beforeEach(() => {
       fakeWatcher.options = undefined;
       fakeWatcher.added = [];
+      fakeWatcher.closes = 0;
       rebuildForFederation.mockClear();
     });
 
@@ -587,6 +595,68 @@ describe('runEsBuildBuilder', () => {
       } finally {
         await builder.close();
       }
+    });
+
+    // Stands in for a rebuild that is still running: like a real one, it only winds down a
+    // moment after its signal aborts.
+    const hangUntilAborted = (onSettled: () => void = () => undefined) =>
+      rebuildForFederation.mockImplementationOnce((...args: unknown[]) => {
+        const { promise, reject } = Promise.withResolvers<never>();
+        (args[4] as AbortSignal).addEventListener('abort', () =>
+          setTimeout(() => {
+            onSettled();
+            reject(new AbortedError('[spec] aborted'));
+          }, 50)
+        );
+        return promise;
+      });
+
+    // Core only re-bundles a linked shared package when its files are in modifiedFiles, so the
+    // rebuild that cancels another has to pick up the canceled one's files too.
+    it('hands the files of an aborted rebuild to the rebuild that replaced it', async () => {
+      const builder = await watch();
+      try {
+        const first = posix(path.join(root, 'checkouts/linked-dep/index.js'));
+        const second = posix(path.join(root, 'src/watched.ts'));
+        hangUntilAborted();
+
+        change(first);
+        await vi.waitFor(() => expect(rebuildForFederation).toHaveBeenCalledTimes(1));
+        change(second);
+        await vi.waitFor(() => expect(rebuildForFederation).toHaveBeenCalledTimes(2));
+
+        expect((rebuildForFederation.mock.calls[1]![3] as string[]).sort()).toEqual(
+          [first, second].sort()
+        );
+      } finally {
+        await builder.close();
+      }
+    });
+
+    it('waits for a running rebuild before close() resolves', async () => {
+      const builder = await watch();
+      let settled = false;
+      hangUntilAborted(() => {
+        settled = true;
+      });
+
+      change(posix(path.join(root, 'src/watched.ts')));
+      await vi.waitFor(() => expect(rebuildForFederation).toHaveBeenCalledTimes(1));
+      await builder.close();
+
+      expect(settled).toBe(true);
+    });
+
+    it('closes the watcher once when close() is called repeatedly', async () => {
+      const builder = await watch();
+
+      const first = builder.close();
+      const second = builder.close();
+      expect(second).toBe(first);
+      await first;
+      await builder.close();
+
+      expect(fakeWatcher.closes).toBe(1);
     });
 
     it('hands a custom watch port to the file watcher', async () => {
