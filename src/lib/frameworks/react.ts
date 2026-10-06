@@ -10,8 +10,10 @@ export const REACT_SKIP_LIST: SkipList = [
   'react-dom/profiling',
 ];
 
-// React needs nothing beyond the defaults: the NODE_ENV define picks its dev or prod build, and
-// CommonJS interop is always on (see build-options.ts).
+/**
+ * @deprecated React needs no preset: the NODE_ENV define picks its dev or prod build and CommonJS
+ * interop is always on. Remove it from `frameworks`; keep using `REACT_SKIP_LIST`.
+ */
 export function reactFrameworkPlugin(): NfFrameworkPlugin {
   return { name: 'react' };
 }

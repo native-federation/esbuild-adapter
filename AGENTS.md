@@ -40,7 +40,7 @@ A **single-package repository**, published from the root.
 
 - `.` - `createEsBuildAdapter`, `runEsBuildBuilder`, `normalizeBuilderOptions`, framework presets
 - `./domain` - contracts (`EsBuildAdapterConfig`, `EsBuildBuilderOptions`, `NfFrameworkPlugin`, ...)
-- `./frameworks/react` - the React preset
+- `./frameworks/react` - `REACT_SKIP_LIST` (and the deprecated, empty React preset)
 
 **Important files**:
 
