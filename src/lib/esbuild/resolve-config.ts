@@ -7,7 +7,6 @@ export interface ResolvedAdapterConfig {
   // Framework extensions, appended to each bundle kind's defaults.
   resolveExtensions: string[];
   fileReplacements: { dev: Record<string, string>; prod: Record<string, string> };
-  needsCommonJsPlugin: boolean;
   define?: Record<string, string>;
   target?: string | string[];
   sourcemap?: esbuild.BuildOptions['sourcemap'];
@@ -37,7 +36,6 @@ export function resolveAdapterConfig(config: EsBuildAdapterConfig): ResolvedAdap
     loader: Object.keys(loader).length ? loader : undefined,
     resolveExtensions: frameworks.flatMap(fw => fw.resolveExtensions ?? []),
     fileReplacements: { dev: replacements('dev'), prod: replacements('prod') },
-    needsCommonJsPlugin: frameworks.some(fw => fw.needsCommonJsPlugin),
     define: config.define,
     target: config.target,
     sourcemap: config.sourcemap,

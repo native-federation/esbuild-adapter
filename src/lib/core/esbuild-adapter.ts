@@ -14,17 +14,13 @@ import type { CachedContext, EsbuildBundlerCache } from '../domain/adapter-conte
 import { sharedBuildOptions, sourceBuildOptions } from '../esbuild/build-options.js';
 import { createExternalsCacheKey } from '../esbuild/externals-cache-key.js';
 import { resolveAdapterConfig } from '../esbuild/resolve-config.js';
-import { reactFrameworkPlugin } from '../frameworks/react.js';
 import { writeResult } from '../utils/write-result.js';
 
 export function createEsBuildAdapter(
   config: EsBuildAdapterConfig,
   { workspaceRoot }: EsBuildAdapterOptions = {}
 ): NFBuildAdapter {
-  const resolved = resolveAdapterConfig({
-    ...config,
-    frameworks: config.frameworks ?? [reactFrameworkPlugin()],
-  });
+  const resolved = resolveAdapterConfig(config);
   const contexts = new Map<string, CachedContext>();
 
   // Leaves the esbuild service running: stopping it would break every other context in the process.

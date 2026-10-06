@@ -1,4 +1,7 @@
-import type * as esbuild from 'esbuild';
+import * as esbuild from 'esbuild';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import type { NFBuildAdapterOptions } from '@softarc/native-federation/domain';
 import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
 import { sharedBuildOptions, sharedPackageOptions, sourceBuildOptions } from './build-options.js';
@@ -38,17 +41,9 @@ describe('sharedBuildOptions', () => {
   // Guard for the externals cache key: an option added to sharedBuildOptions instead of to
   // sharedPackageOptions would silently escape the key and serve stale externals.
   it.each([true, false])('passes only keyed or request-provided options (dev=%s)', dev => {
-    const config = resolve({
-      target: 'es2022',
-      loader: { '.svg': 'text' },
-      frameworks: [{ name: 'fw', needsCommonJsPlugin: true }],
-    });
-    const { fileReplacements, needsCommonJsPlugin, plugins, ...keyed } = sharedPackageOptions(
-      config,
-      dev
-    );
+    const config = resolve({ target: 'es2022', loader: { '.svg': 'text' } });
+    const { fileReplacements, plugins, ...keyed } = sharedPackageOptions(config, dev);
     expect(fileReplacements).toEqual({});
-    expect(needsCommonJsPlugin).toBe(true);
 
     const { plugins: passedPlugins, ...rest } = sharedBuildOptions(
       request({ dev }),
@@ -61,17 +56,11 @@ describe('sharedBuildOptions', () => {
     expect(passedPlugins!.slice(1)).toEqual(plugins);
   });
 
-  it('runs the CommonJS plugin first when a framework needs it', () => {
+  it('always runs the CommonJS plugin first', () => {
     const user = { name: 'user', setup: () => undefined };
-    const names = (needsCommonJsPlugin: boolean) =>
-      sharedBuildOptions(
-        request(),
-        resolve({ plugins: [user], frameworks: [{ name: 'fw', needsCommonJsPlugin }] }),
-        '/workspace'
-      ).plugins!.map(p => p.name);
+    const options = sharedBuildOptions(request(), resolve({ plugins: [user] }), '/workspace');
 
-    expect(names(true)).toEqual(['commonjs', 'user']);
-    expect(names(false)).toEqual(['user']);
+    expect(options.plugins!.map(p => p.name)).toEqual(['commonjs', 'user']);
   });
 
   it('swaps the matching suffix of an entry point and keeps its prefix', () => {
@@ -129,6 +118,57 @@ describe('sharedBuildOptions', () => {
       '.cjs',
       '.vue',
     ]);
+  });
+
+  // React's index.js picks its CJS build behind `process.env.NODE_ENV`; the define alone has to
+  // keep the other build out of the bundle, which is why no framework swaps those files.
+  describe('NODE_ENV entry branches', () => {
+    let root: string;
+
+    beforeAll(() => {
+      root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nf-esbuild-env-')));
+      const pkg = path.join(root, 'node_modules/env-dep');
+      fs.mkdirSync(path.join(pkg, 'cjs'), { recursive: true });
+      fs.writeFileSync(
+        path.join(pkg, 'index.js'),
+        [
+          `'use strict';`,
+          `if (process.env.NODE_ENV === 'production') {`,
+          `  module.exports = require('./cjs/env-dep.production.js');`,
+          `} else {`,
+          `  module.exports = require('./cjs/env-dep.development.js');`,
+          `}`,
+          '',
+        ].join('\n')
+      );
+      fs.writeFileSync(path.join(pkg, 'cjs/env-dep.production.js'), `exports.mode = '<PROD>';\n`);
+      fs.writeFileSync(path.join(pkg, 'cjs/env-dep.development.js'), `exports.mode = '<DEV>';\n`);
+    });
+
+    afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    it.each([
+      [true, '<DEV>', '<PROD>'],
+      [false, '<PROD>', '<DEV>'],
+    ])('bundles only the matching build (dev=%s)', async (dev, kept, dropped) => {
+      const options = sharedBuildOptions(
+        request({
+          dev,
+          external: [],
+          entryPoints: [
+            { fileName: path.join(root, 'node_modules/env-dep/index.js'), outName: 'env-dep.js' },
+          ],
+          outdir: path.join(root, 'dist'),
+        }),
+        resolve(),
+        root
+      );
+      const result = await esbuild.build({ ...options, sourcemap: false });
+      const code = result.outputFiles!.map(f => f.text).join('\n');
+
+      expect(code).toContain(kept);
+      expect(code).not.toContain(dropped);
+    });
   });
 });
 

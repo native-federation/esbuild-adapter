@@ -15,7 +15,6 @@ describe('resolveAdapterConfig', () => {
       loader: undefined,
       resolveExtensions: [],
       fileReplacements: { dev: {}, prod: {} },
-      needsCommonJsPlugin: false,
       define: undefined,
       target: undefined,
       sourcemap: undefined,
@@ -104,14 +103,5 @@ describe('resolveAdapterConfig', () => {
       sourcemap: 'external',
       preserveSymlinks: true,
     });
-  });
-
-  it('needs the CommonJS plugin when any framework asks for it', () => {
-    const result = resolveAdapterConfig({
-      plugins: [],
-      frameworks: [{ name: 'a' }, { name: 'b', needsCommonJsPlugin: true }],
-    });
-
-    expect(result.needsCommonJsPlugin).toBe(true);
   });
 });

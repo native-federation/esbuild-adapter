@@ -45,10 +45,7 @@ export function sharedBuildOptions(
   config: ResolvedAdapterConfig,
   absWorkingDir: string
 ): esbuild.BuildOptions {
-  const { fileReplacements, needsCommonJsPlugin, plugins, ...options } = sharedPackageOptions(
-    config,
-    !!request.dev
-  );
+  const { fileReplacements, plugins, ...options } = sharedPackageOptions(config, !!request.dev);
   const entryPoints = request.entryPoints.map(ep => ({
     ...ep,
     fileName: replaceSuffix(ep.fileName, fileReplacements),
@@ -57,15 +54,16 @@ export function sharedBuildOptions(
   return {
     ...options,
     ...requestOptions(request, absWorkingDir, entryPoints),
-    plugins: needsCommonJsPlugin ? [createCommonJsPlugin(request.external), ...plugins] : plugins,
+    plugins: [createCommonJsPlugin(request.external), ...plugins],
   };
 }
 
 // No user `define` here: it can't reach the cache key without invalidating it on every change.
+// The NODE_ENV define also makes esbuild drop the unused branch of `if (NODE_ENV === ...)
+// require(...)` entry files such as React's, so no dev/prod file swap is needed.
 export function sharedPackageOptions(config: ResolvedAdapterConfig, dev: boolean) {
   return {
     fileReplacements: config.fileReplacements[dev ? 'dev' : 'prod'],
-    needsCommonJsPlugin: config.needsCommonJsPlugin,
     plugins: config.plugins,
     write: false,
     bundle: true,
@@ -76,10 +74,7 @@ export function sharedPackageOptions(config: ResolvedAdapterConfig, dev: boolean
     loader: config.loader,
     define: { 'process.env.NODE_ENV': JSON.stringify(dev ? 'development' : 'production') },
     resolveExtensions: withDefaults(SHARED_EXTENSIONS, config.resolveExtensions),
-  } satisfies esbuild.BuildOptions & {
-    fileReplacements: Record<string, string>;
-    needsCommonJsPlugin: boolean;
-  };
+  } satisfies esbuild.BuildOptions & { fileReplacements: Record<string, string> };
 }
 
 function requestOptions(
