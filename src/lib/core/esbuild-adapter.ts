@@ -5,7 +5,11 @@ import type {
 } from '@softarc/native-federation/domain';
 import { AbortedError } from '@softarc/native-federation/internal';
 import * as esbuild from 'esbuild';
-import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
+import * as path from 'path';
+import type {
+  EsBuildAdapterConfig,
+  EsBuildAdapterOptions,
+} from '../domain/adapter-config.contract.js';
 import type { CachedContext, EsbuildBundlerCache } from '../domain/adapter-context.contract.js';
 import { writeResult } from '../utils/write-result.js';
 import { createSourceCodeEsbuildContext } from '../utils/source-code-bundler.js';
@@ -17,7 +21,10 @@ import { createExternalsCacheKey } from '../utils/externals-cache-key.js';
 import { reactFrameworkPlugin } from '../frameworks/react.js';
 import { resolveFrameworkConfig } from './resolve-framework-config.js';
 
-export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapter {
+export function createEsBuildAdapter(
+  config: EsBuildAdapterConfig,
+  { workspaceRoot }: EsBuildAdapterOptions = {}
+): NFBuildAdapter {
   if (!config.frameworks) {
     config.frameworks = [reactFrameworkPlugin()];
   }
@@ -70,6 +77,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
     }
 
     const esbuildPlatform = platform === 'node' ? 'node' : 'browser';
+    const workingDir = path.resolve(workspaceRoot ?? process.cwd());
 
     const ctx = isMappingOrExposed
       ? await createSourceCodeEsbuildContext(
@@ -82,6 +90,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
           hash,
           chunks,
           esbuildPlatform,
+          workingDir,
           tsConfigPath
         )
       : await createNodeModulesEsbuildContext(
@@ -92,7 +101,8 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
           dev,
           hash,
           chunks,
-          esbuildPlatform
+          esbuildPlatform,
+          workingDir
         );
 
     bundleContextCache.set(name, {
@@ -102,6 +112,7 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
       name,
       isMappingOrExposed,
       bundlerCache: cache?.bundlerCache,
+      workingDir,
     });
   };
 
@@ -136,8 +147,12 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
       const writtenFiles = writeResult(result, entry.outdir);
 
       if (entry.bundlerCache && result.metafile) {
+        // Metafile paths are relative to absWorkingDir; the keys must be absolute posix paths to
+        // match the changes the watcher reports.
         for (const input of Object.keys(result.metafile.inputs)) {
-          entry.bundlerCache.set(input, null);
+          if (isVirtualInput(input)) continue;
+          const file = path.resolve(entry.workingDir, input).split(path.sep).join('/');
+          entry.bundlerCache.set(file, null);
         }
       }
 
@@ -153,4 +168,10 @@ export function createEsBuildAdapter(config: EsBuildAdapterConfig): NFBuildAdapt
   };
 
   return { externalsCacheKey, setup, build, dispose };
+}
+
+// Inputs from a plugin namespace ('nf-cjs-external:react') or esbuild itself ('<stdin>') aren't
+// files; a Windows drive letter ('C:/...') is.
+function isVirtualInput(input: string): boolean {
+  return input.startsWith('<') || /^[^/\\]{2,}:/.test(input);
 }

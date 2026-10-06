@@ -17,7 +17,6 @@ export function createChangeFilter(options: ChangeFilterOptions): (changedPath: 
   ];
 
   return changedPath => {
-    // esbuild's metafile paths are relative to cwd.
     const file = path.resolve(changedPath);
     return inNodeModules(file) || ignoredDirs.some(dir => isUnderDir(file, dir));
   };

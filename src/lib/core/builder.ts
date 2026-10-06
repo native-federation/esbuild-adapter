@@ -42,7 +42,9 @@ export async function runEsBuildBuilder(
   const options = normalizeBuilderOptions(rawOptions);
   setLogLevel(options.verbose ? 'verbose' : 'info');
 
-  const adapter = createEsBuildAdapter(options.adapterConfig);
+  const adapter = createEsBuildAdapter(options.adapterConfig, {
+    workspaceRoot: options.workspaceRoot,
+  });
   setBuildAdapter(adapter);
 
   const bundlerCache: EsbuildBundlerCache = new Map<string, unknown>();

@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import type {
   EsBuildBuilderOptions,
@@ -17,7 +18,9 @@ export function normalizeBuilderOptions(
     options.workspaceRoot ? path.resolve(process.cwd(), options.workspaceRoot) : process.cwd()
   );
 
-  const tsConfig = options.tsConfig ?? 'tsconfig.json';
+  const tsConfig = options.tsConfig
+    ? path.resolve(workspaceRoot, options.tsConfig)
+    : defaultTsConfig(workspaceRoot);
   const cachePath = options.cachePath
     ? path.resolve(workspaceRoot, options.cachePath)
     : getDefaultCachePath(workspaceRoot);
@@ -39,4 +42,10 @@ export function normalizeBuilderOptions(
     cacheExternalArtifacts: options.cacheExternalArtifacts !== false,
     adapterConfig: options.adapterConfig ?? { plugins: [] },
   };
+}
+
+// Without one, esbuild finds the nearest tsconfig per file; an explicit path must exist.
+function defaultTsConfig(workspaceRoot: string): string | undefined {
+  const tsConfig = path.join(workspaceRoot, 'tsconfig.json');
+  return fs.existsSync(tsConfig) ? tsConfig : undefined;
 }

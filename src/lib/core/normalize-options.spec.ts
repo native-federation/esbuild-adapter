@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { getDefaultCachePath } from '@softarc/native-federation/internal';
 import { toDiskCase } from '../utils/disk-case.js';
@@ -16,7 +18,7 @@ describe('normalizeBuilderOptions', () => {
     expect(result).toEqual({
       workspaceRoot: process.cwd(),
       outputPath: 'dist',
-      tsConfig: 'tsconfig.json',
+      tsConfig: path.join(process.cwd(), 'tsconfig.json'),
       cachePath: getDefaultCachePath(process.cwd()),
       projectName: undefined,
       entryPoints: undefined,
@@ -51,6 +53,48 @@ describe('normalizeBuilderOptions', () => {
     expect(result.cachePath).toBe(path.join(expectedRoot, '.cache/nf'));
   });
 
+  // Core passes tsConfig to esbuild unchanged, and esbuild resolves a relative one against cwd.
+  it('resolves tsConfig against workspaceRoot', () => {
+    const result = normalizeBuilderOptions({
+      outputPath: 'dist',
+      workspaceRoot: 'apps/remote',
+      tsConfig: 'tsconfig.app.json',
+    });
+
+    expect(result.tsConfig).toBe(path.resolve(process.cwd(), 'apps/remote/tsconfig.app.json'));
+  });
+
+  describe('without a tsConfig', () => {
+    let root: string;
+    beforeEach(() => {
+      root = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-tsconfig-'));
+    });
+    afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    it('defaults to tsconfig.json in workspaceRoot', () => {
+      fs.writeFileSync(path.join(root, 'tsconfig.json'), '{}');
+      expect(normalizeBuilderOptions({ outputPath: 'dist', workspaceRoot: root }).tsConfig).toBe(
+        path.join(root, 'tsconfig.json')
+      );
+    });
+
+    // e.g. a monorepo app with only tsconfig.app.json: esbuild must find the nearest tsconfig
+    // itself, as an explicit path to a missing file fails the build.
+    it('leaves it unset when workspaceRoot has no tsconfig.json', () => {
+      expect(
+        normalizeBuilderOptions({ outputPath: 'dist', workspaceRoot: root }).tsConfig
+      ).toBeUndefined();
+    });
+  });
+
+  it('keeps an absolute tsConfig as-is', () => {
+    const tsConfig = path.resolve('/tmp/other/tsconfig.json');
+    expect(
+      normalizeBuilderOptions({ outputPath: 'dist', workspaceRoot: 'apps/remote', tsConfig })
+        .tsConfig
+    ).toBe(tsConfig);
+  });
+
   it('keeps an absolute cachePath as-is', () => {
     const cachePath = path.resolve('/tmp/nf-cache');
     expect(
@@ -67,7 +111,7 @@ describe('normalizeBuilderOptions', () => {
   });
 
   // Core re-cases the root it builds from, so the adapter's own derived paths must agree with it.
-  it('derives workspaceRoot and cachePath from the on-disk spelling of the root', () => {
+  it('derives workspaceRoot, cachePath and tsConfig from the on-disk spelling of the root', () => {
     const shellRoot = path.resolve('/tmp/ws');
     const diskRoot = path.resolve('/tmp/WS');
     vi.mocked(toDiskCase).mockImplementationOnce(p => (p === shellRoot ? diskRoot : p));
@@ -76,11 +120,13 @@ describe('normalizeBuilderOptions', () => {
       outputPath: 'dist',
       workspaceRoot: shellRoot,
       cachePath: '.cache/nf',
+      tsConfig: 'tsconfig.app.json',
     });
 
     expect(toDiskCase).toHaveBeenCalledWith(shellRoot);
     expect(result.workspaceRoot).toBe(diskRoot);
     expect(result.cachePath).toBe(path.join(diskRoot, '.cache/nf'));
+    expect(result.tsConfig).toBe(path.join(diskRoot, 'tsconfig.app.json'));
   });
 
   it('passes explicit values through', () => {
@@ -100,7 +146,6 @@ describe('normalizeBuilderOptions', () => {
     });
 
     expect(result).toMatchObject({
-      tsConfig: 'tsconfig.app.json',
       projectName: 'remote',
       entryPoints: ['src/main.ts'],
       packageJson: 'package.json',

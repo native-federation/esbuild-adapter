@@ -5,4 +5,5 @@ export type EsbuildBundlerCache = Map<string, unknown>;
 
 export interface CachedContext extends NFBuildAdapterContext<esbuild.BuildContext> {
   bundlerCache: EsbuildBundlerCache | undefined;
+  workingDir: string;
 }

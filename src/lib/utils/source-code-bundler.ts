@@ -15,6 +15,7 @@ export async function createSourceCodeEsbuildContext(
   hash: boolean,
   chunks: boolean,
   platform: 'browser' | 'node',
+  absWorkingDir: string,
   tsConfigPath?: string
 ): Promise<esbuild.BuildContext> {
   return esbuild.context({
@@ -22,6 +23,7 @@ export async function createSourceCodeEsbuildContext(
       in: ep.fileName,
       out: path.parse(ep.outName).name,
     })),
+    absWorkingDir,
     write: false,
     metafile: true,
     outdir,
