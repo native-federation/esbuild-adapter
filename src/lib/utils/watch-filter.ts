@@ -11,8 +11,6 @@ export interface ChangeFilterOptions {
 export function createChangeFilter(options: ChangeFilterOptions): (changedPath: string) => boolean {
   const ignoredDirs = [
     path.resolve(options.workspaceRoot, options.outputPath),
-    // Exposes land relative to cwd until native-federation-core#156.
-    path.resolve(options.outputPath),
     path.resolve(options.workspaceRoot, options.cachePath),
   ];
 
