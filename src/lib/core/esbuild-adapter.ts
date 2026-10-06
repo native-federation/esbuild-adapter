@@ -22,9 +22,11 @@ export function createEsBuildAdapter(
 ): NFBuildAdapter {
   const resolved = resolveAdapterConfig(config);
   const contexts = new Map<string, CachedContext>();
+  let generation = 0;
 
   // Leaves the esbuild service running: stopping it would break every other context in the process.
   const dispose = async (name?: string): Promise<void> => {
+    if (name === undefined) generation++;
     const names = name === undefined ? [...contexts.keys()] : [name];
     await Promise.all(
       names.map(async n => {
@@ -39,6 +41,7 @@ export function createEsBuildAdapter(
     name: string,
     options: NFBuildAdapterOptions<EsbuildBundlerCache>
   ): Promise<void> => {
+    const startedIn = generation;
     // A context left over from a failed build was set up with options that may be stale.
     await dispose(name);
 
@@ -48,8 +51,16 @@ export function createEsBuildAdapter(
       ? sourceBuildOptions(options, resolved, workingDir)
       : sharedBuildOptions(options, resolved, workingDir);
 
+    const ctx = await esbuild.context(buildOptions);
+    // Core bundles in parallel and the builder disposes as soon as one fails; a context created
+    // after that would never be disposed and keep the process alive.
+    if (generation !== startedIn) {
+      await ctx.dispose();
+      throw new AbortedError('[setup] Adapter disposed during setup');
+    }
+
     contexts.set(name, {
-      ctx: await esbuild.context(buildOptions),
+      ctx,
       name,
       outdir: options.outdir,
       dev: !!options.dev,

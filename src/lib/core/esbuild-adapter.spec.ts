@@ -158,6 +158,38 @@ describe('createEsBuildAdapter', () => {
     await expect(adapter.build('a')).rejects.toThrow('No context found');
   });
 
+  // Core runs the separate shared bundles with Promise.all; when one fails, the builder disposes
+  // the adapter while its siblings are still waiting on esbuild.context().
+  it('disposes a context that finishes setting up after the adapter was disposed', async () => {
+    const adapter = createEsBuildAdapter({ plugins: [] }, { workspaceRoot });
+    const late = {
+      rebuild: vi.fn(),
+      cancel: vi.fn(async () => undefined),
+      dispose: vi.fn(async () => undefined),
+    };
+    const { promise, resolve } = Promise.withResolvers<typeof late>();
+    vi.mocked(esbuild.context).mockImplementationOnce(
+      () => promise as unknown as ReturnType<typeof esbuild.context>
+    );
+
+    const setup = adapter.setup('late', setupOptions(false));
+    await vi.waitFor(() => expect(esbuild.context).toHaveBeenCalledOnce());
+    await adapter.dispose();
+    resolve(late);
+
+    await expect(setup).rejects.toBeInstanceOf(AbortedError);
+    expect(late.dispose).toHaveBeenCalledOnce();
+    await expect(adapter.build('late')).rejects.toThrow('No context found');
+  });
+
+  it('keeps working for setups started after a dispose', async () => {
+    const adapter = createEsBuildAdapter({ plugins: [] }, { workspaceRoot });
+    await adapter.dispose();
+    await adapter.setup('bundle', setupOptions(true));
+
+    await expect(adapter.build('bundle')).resolves.toEqual([]);
+  });
+
   it('ignores disposing a bundle that does not exist', async () => {
     const adapter = createEsBuildAdapter({ plugins: [] });
     await expect(adapter.dispose('missing')).resolves.toBeUndefined();
