@@ -96,15 +96,15 @@ export async function runEsBuildBuilder(
 
   const rebuildQueue = new RebuildQueue();
   const pendingChanges = new Set<string>();
+  let lastRebuild: Promise<unknown> = Promise.resolve();
   let closed = false;
 
   const watcher: NfFileWatcher = createNfWatcher({
     watch: options.watcher,
     onChange: changedPath => {
-      if (closed) return;
-      if (isIgnored(changedPath)) return;
+      if (closed || isIgnored(changedPath)) return;
       pendingChanges.add(changedPath);
-      void triggerRebuild();
+      lastRebuild = rebuildQueue.track(rebuild);
     },
   });
 
@@ -114,39 +114,39 @@ export async function runEsBuildBuilder(
   );
   syncNfFileWatcher(watcher, bundlerCache, linkedDirs);
 
-  async function triggerRebuild(): Promise<void> {
-    await rebuildQueue.track(async signal => {
-      try {
-        await abortableDelay(Math.max(10, options.rebuildDelay), signal);
+  async function rebuild(signal: AbortSignal) {
+    let files: string[] = [];
+    try {
+      await abortableDelay(Math.max(10, options.rebuildDelay), signal);
+      if (closed || signal.aborted) throw new AbortedError('[builder] Aborted before rebuild');
 
-        if (signal.aborted) {
-          throw new AbortedError('[builder] Aborted before rebuild');
-        }
+      files = [...pendingChanges];
+      pendingChanges.clear();
 
-        const files = [...pendingChanges];
-        pendingChanges.clear();
+      federationInfo = await rebuildForFederation(
+        normalized.config,
+        normalized.options,
+        externals,
+        files,
+        signal
+      );
 
-        federationInfo = await rebuildForFederation(
-          normalized.config,
-          normalized.options,
-          externals,
-          files,
-          signal
-        );
+      syncNfFileWatcher(watcher, bundlerCache, linkedDirs);
+      logger.info('Federation rebuild done.');
+      return { success: true };
+    } catch (error) {
+      // Only a successful rebuild consumes its changes: core decides from them whether a linked
+      // shared package needs re-bundling, so the next rebuild must see them again.
+      for (const file of files) pendingChanges.add(file);
 
-        syncNfFileWatcher(watcher, bundlerCache, linkedDirs);
-        logger.info('Federation rebuild done.');
-        return { success: true };
-      } catch (error) {
-        if (error instanceof AbortedError) {
-          logger.verbose('Rebuild was canceled: ' + error.message);
-          return { success: false, cancelled: true };
-        }
-        logger.error('Federation rebuild failed!');
-        if (options.verbose) console.error(error);
-        return { success: false };
+      if (error instanceof AbortedError) {
+        logger.verbose('Rebuild was canceled: ' + error.message);
+        return { success: false, cancelled: true };
       }
-    });
+      logger.error('Federation rebuild failed!');
+      if (options.verbose) console.error(error);
+      return { success: false };
+    }
   }
 
   return {
@@ -158,6 +158,7 @@ export async function runEsBuildBuilder(
     async close() {
       closed = true;
       rebuildQueue.dispose();
+      await lastRebuild;
       await watcher.close();
       await adapter.dispose();
     },
