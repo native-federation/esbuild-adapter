@@ -16,8 +16,17 @@ vi.mock('esbuild', async importOriginal => ({
 const esbuild = await import('esbuild');
 
 // Options core hands to the adapter per build; core keys these itself, so they stay out of
-// nodeModulesBuildOptions and therefore out of the externals cache key.
-const CORE_PROVIDED = ['entryPoints', 'outdir', 'entryNames', 'external', 'splitting', 'platform'];
+// nodeModulesBuildOptions and therefore out of the externals cache key. absWorkingDir is the
+// workspace root, which the cache lives under anyway.
+const CORE_PROVIDED = [
+  'entryPoints',
+  'outdir',
+  'entryNames',
+  'external',
+  'splitting',
+  'platform',
+  'absWorkingDir',
+];
 
 describe('createNodeModulesEsbuildContext', () => {
   beforeEach(() => vi.mocked(esbuild.context).mockClear());
@@ -45,7 +54,8 @@ describe('createNodeModulesEsbuildContext', () => {
       dev,
       false,
       false,
-      'browser'
+      'browser',
+      '/workspace'
     );
 
     const passed = vi.mocked(esbuild.context).mock.calls[0]![0];
@@ -72,7 +82,8 @@ describe('createNodeModulesEsbuildContext', () => {
       false,
       false,
       false,
-      'browser'
+      'browser',
+      '/workspace'
     );
 
     expect(entryPoint.fileName).toBe('src/foo-shim.js');

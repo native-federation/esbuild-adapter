@@ -496,8 +496,8 @@ describe('runEsBuildBuilder', () => {
       });
       try {
         expect(watched(false)).not.toContain(posix(root));
-        // Still watched as a file; esbuild's metafile paths are cwd-relative, and cwd is root here.
-        expect(watched(false).map(p => path.resolve(p))).toContain(path.join(root, 'env.ts'));
+        // Still watched as a file, by the absolute path the adapter derives from esbuild's metafile.
+        expect(watched(false)).toContain(posix(path.join(root, 'env.ts')));
 
         change(posix(path.join(root, 'node_modules/.cache/nf-watch-root/watch-root/x.json')));
         await new Promise(resolve => setTimeout(resolve, 100));

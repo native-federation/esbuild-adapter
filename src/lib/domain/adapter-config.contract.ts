@@ -5,6 +5,11 @@ export type ReplacementConfig = {
   file: string;
 };
 
+export interface EsBuildAdapterOptions {
+  // esbuild's working dir: relative paths and output hashes resolve against it. Defaults to cwd.
+  workspaceRoot?: string;
+}
+
 export interface EsBuildAdapterConfig {
   plugins: esbuild.Plugin[];
   fileReplacements?: Record<string, string | ReplacementConfig>;

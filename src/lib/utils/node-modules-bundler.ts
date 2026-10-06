@@ -42,7 +42,8 @@ export async function createNodeModulesEsbuildContext(
   dev: boolean,
   hash: boolean,
   chunks: boolean,
-  platform: 'browser' | 'node'
+  platform: 'browser' | 'node',
+  absWorkingDir: string
 ): Promise<esbuild.BuildContext> {
   const { fileReplacements, needsCommonJsPlugin, plugins, ...options } = nodeModulesBuildOptions(
     config,
@@ -57,6 +58,7 @@ export async function createNodeModulesEsbuildContext(
 
   return esbuild.context({
     ...options,
+    absWorkingDir,
     entryPoints: entryPoints.map(ep => ({
       in: ep.fileName,
       out: path.parse(ep.outName).name,

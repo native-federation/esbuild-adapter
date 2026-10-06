@@ -23,7 +23,7 @@ export interface NormalizedEsBuildBuilderOptions {
   workspaceRoot: string;
   outputPath: string;
   cachePath: string;
-  tsConfig: string;
+  tsConfig?: string;
   projectName?: string;
   entryPoints?: string[];
   packageJson?: string;

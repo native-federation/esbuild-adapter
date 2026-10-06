@@ -21,11 +21,6 @@ describe('createChangeFilter', () => {
     expect(isIgnored(at('dist/app'))).toBe(true);
   });
 
-  // native-federation-core#156
-  it('also ignores the output path resolved against cwd', () => {
-    expect(isIgnored(path.resolve('dist/app/component.js'))).toBe(true);
-  });
-
   it('accepts an absolute outputPath', () => {
     const filter = createChangeFilter({
       workspaceRoot: root,

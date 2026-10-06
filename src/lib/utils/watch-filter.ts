@@ -11,13 +11,10 @@ export interface ChangeFilterOptions {
 export function createChangeFilter(options: ChangeFilterOptions): (changedPath: string) => boolean {
   const ignoredDirs = [
     path.resolve(options.workspaceRoot, options.outputPath),
-    // Exposes land relative to cwd until native-federation-core#156.
-    path.resolve(options.outputPath),
     path.resolve(options.workspaceRoot, options.cachePath),
   ];
 
   return changedPath => {
-    // esbuild's metafile paths are relative to cwd.
     const file = path.resolve(changedPath);
     return inNodeModules(file) || ignoredDirs.some(dir => isUnderDir(file, dir));
   };
