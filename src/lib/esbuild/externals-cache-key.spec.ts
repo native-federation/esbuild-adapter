@@ -5,6 +5,7 @@ import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js'
 import type { NfFrameworkPlugin } from '../domain/framework-plugin.contract.js';
 import { createEsBuildAdapter } from '../core/esbuild-adapter.js';
 import { reactFrameworkPlugin } from '../frameworks/react.js';
+import { resolveAdapterConfig } from './resolve-config.js';
 import {
   createExternalsCacheKey,
   readKeyedVersions,
@@ -17,7 +18,12 @@ const versions: KeyedVersions = {
 };
 
 const keyOf = (config: Partial<EsBuildAdapterConfig> = {}, v: Partial<KeyedVersions> = {}) =>
-  JSON.stringify(createExternalsCacheKey({ plugins: [], ...config }, { ...versions, ...v }));
+  JSON.stringify(
+    createExternalsCacheKey(resolveAdapterConfig({ plugins: [], ...config }), {
+      ...versions,
+      ...v,
+    })
+  );
 
 const plugin = (name: string): esbuild.Plugin => ({ name, setup: () => {} });
 
@@ -29,7 +35,7 @@ describe('createExternalsCacheKey', () => {
   });
 
   it('keys the npm bundle options per mode', () => {
-    const key = createExternalsCacheKey({ plugins: [] }, versions);
+    const key = createExternalsCacheKey(resolveAdapterConfig({ plugins: [] }), versions);
     expect(key.adapter).toBe(versions.adapter);
     expect(Object.keys(key.options!)).toEqual(['esbuild', 'dev', 'prod']);
     expect(key.options!['dev']).not.toBe(key.options!['prod']);

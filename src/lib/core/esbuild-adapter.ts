@@ -11,26 +11,20 @@ import type {
   EsBuildAdapterOptions,
 } from '../domain/adapter-config.contract.js';
 import type { CachedContext, EsbuildBundlerCache } from '../domain/adapter-context.contract.js';
-import { writeResult } from '../utils/write-result.js';
-import { createSourceCodeEsbuildContext } from '../utils/source-code-bundler.js';
-import {
-  createNodeModulesEsbuildContext,
-  NODE_MODULES_RESOLVE_EXTENSIONS,
-} from '../utils/node-modules-bundler.js';
-import { createExternalsCacheKey } from '../utils/externals-cache-key.js';
+import { sharedBuildOptions, sourceBuildOptions } from '../esbuild/build-options.js';
+import { createExternalsCacheKey } from '../esbuild/externals-cache-key.js';
+import { resolveAdapterConfig } from '../esbuild/resolve-config.js';
 import { reactFrameworkPlugin } from '../frameworks/react.js';
-import { resolveFrameworkConfig } from './resolve-framework-config.js';
+import { writeResult } from '../utils/write-result.js';
 
 export function createEsBuildAdapter(
   config: EsBuildAdapterConfig,
   { workspaceRoot }: EsBuildAdapterOptions = {}
 ): NFBuildAdapter {
-  if (!config.frameworks) {
-    config.frameworks = [reactFrameworkPlugin()];
-  }
-
-  // Core reads externalsCacheKey before setup(), so it is derived from the config up front.
-  const externalsCacheKey = createExternalsCacheKey(config);
+  const resolved = resolveAdapterConfig({
+    ...config,
+    frameworks: config.frameworks ?? [reactFrameworkPlugin()],
+  });
   const bundleContextCache = new Map<string, CachedContext>();
 
   const dispose = async (name?: string): Promise<void> => {
@@ -58,60 +52,25 @@ export function createEsBuildAdapter(
     name: string,
     options: NFBuildAdapterOptions<EsbuildBundlerCache>
   ): Promise<void> => {
-    const {
-      entryPoints,
-      external,
-      mappedPaths,
-      outdir,
-      hash,
-      chunks = false,
-      dev = false,
-      platform = 'browser',
-      tsConfigPath,
-      isMappingOrExposed,
-      cache,
-    } = options;
-
     if (bundleContextCache.has(name)) {
       return;
     }
 
-    const esbuildPlatform = platform === 'node' ? 'node' : 'browser';
+    // Read per setup: hosts may chdir into the project after creating the adapter.
     const workingDir = path.resolve(workspaceRoot ?? process.cwd());
-
-    const ctx = isMappingOrExposed
-      ? await createSourceCodeEsbuildContext(
-          entryPoints,
-          external,
-          mappedPaths,
-          outdir,
-          resolveFrameworkConfig(config, dev, ['.ts', '.tsx', '.mjs', '.js', '.cjs']),
-          dev,
-          hash,
-          chunks,
-          esbuildPlatform,
-          workingDir,
-          tsConfigPath
-        )
-      : await createNodeModulesEsbuildContext(
-          entryPoints,
-          external,
-          outdir,
-          resolveFrameworkConfig(config, dev, NODE_MODULES_RESOLVE_EXTENSIONS),
-          dev,
-          hash,
-          chunks,
-          esbuildPlatform,
-          workingDir
-        );
+    const ctx = await esbuild.context(
+      options.isMappingOrExposed
+        ? sourceBuildOptions(options, resolved, workingDir)
+        : sharedBuildOptions(options, resolved, workingDir)
+    );
 
     bundleContextCache.set(name, {
       ctx,
-      outdir,
-      dev,
+      outdir: options.outdir,
+      dev: !!options.dev,
       name,
-      isMappingOrExposed,
-      bundlerCache: cache?.bundlerCache,
+      isMappingOrExposed: options.isMappingOrExposed,
+      bundlerCache: options.cache?.bundlerCache,
       workingDir,
     });
   };
@@ -167,7 +126,7 @@ export function createEsBuildAdapter(
     }
   };
 
-  return { externalsCacheKey, setup, build, dispose };
+  return { externalsCacheKey: createExternalsCacheKey(resolved), setup, build, dispose };
 }
 
 // Inputs from a plugin namespace ('nf-cjs-external:react') or esbuild itself ('<stdin>') aren't

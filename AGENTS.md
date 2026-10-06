@@ -46,9 +46,12 @@ A **single-package repository**, published from the root.
 
 - `src/lib/core/esbuild-adapter.ts` - the `NFBuildAdapter`: one esbuild context per bundle name
 - `src/lib/core/builder.ts` - `runEsBuildBuilder`: build, then optionally watch and rebuild
-- `src/lib/core/resolve-framework-config.ts` - merges framework plugins with the user config
-- `src/lib/utils/source-code-bundler.ts` - context for exposed modules and shared mappings
-- `src/lib/utils/node-modules-bundler.ts` - context for shared npm packages
+- `src/lib/esbuild/build-options.ts` - esbuild options for source code and for shared npm packages
+- `src/lib/esbuild/resolve-config.ts` - merges framework presets with the user config
+- `src/lib/esbuild/externals-cache-key.ts` - keys the shared-package cache on those options
+
+`core/` drives the build and implements core's adapter contract, `esbuild/` translates config into
+esbuild options and plugins, and `utils/` holds bundler-independent helpers.
 
 ## Conventions
 
