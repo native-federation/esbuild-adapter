@@ -79,9 +79,10 @@ describe('createExternalsCacheKey', () => {
     );
   });
 
-  it('ignores the order of file replacements', () => {
-    expect(keyOf({ fileReplacements: { 'a.js': 'x.js', 'b.js': 'y.js' } })).toBe(
-      keyOf({ fileReplacements: { 'b.js': 'y.js', 'a.js': 'x.js' } })
+  // The last matching key wins, so with overlapping keys the order picks the entry file.
+  it('changes with the order of file replacements', () => {
+    expect(keyOf({ fileReplacements: { 'foo/index.js': 'x.js', 'index.js': 'y.js' } })).not.toBe(
+      keyOf({ fileReplacements: { 'index.js': 'y.js', 'foo/index.js': 'x.js' } })
     );
   });
 

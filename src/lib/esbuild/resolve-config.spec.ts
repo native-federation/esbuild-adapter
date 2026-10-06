@@ -64,6 +64,28 @@ describe('resolveAdapterConfig', () => {
     expect(result.loader).toEqual({ '.svg': 'text', '.png': 'file' });
   });
 
+  // replaceSuffix lets the last matching key win, so an overridden key must move behind the
+  // framework keys defined after it.
+  it('orders a redefined replacement key after the keys it overrides', () => {
+    const first: NfFrameworkPlugin = {
+      name: 'first',
+      fileReplacements: { prod: { a: 'first-a.js' } },
+    };
+    const second: NfFrameworkPlugin = {
+      name: 'second',
+      fileReplacements: { prod: { b: 'second-b.js' } },
+    };
+
+    const result = resolveAdapterConfig({
+      plugins: [],
+      frameworks: [first, second],
+      fileReplacements: { a: 'user-a.js' },
+    });
+
+    expect(Object.keys(result.fileReplacements.prod)).toEqual(['b', 'a']);
+    expect(result.fileReplacements.prod.a).toBe('user-a.js');
+  });
+
   it('collects the framework extensions', () => {
     const result = resolveAdapterConfig({
       plugins: [],

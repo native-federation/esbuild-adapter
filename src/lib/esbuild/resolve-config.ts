@@ -23,13 +23,10 @@ export function resolveAdapterConfig(config: EsBuildAdapterConfig): ResolvedAdap
     config.loader
   );
   const replacements = (mode: 'dev' | 'prod') =>
-    toFiles(
-      Object.assign(
-        {},
-        ...frameworks.map(fw => fw.fileReplacements?.[mode]),
-        config.fileReplacements
-      )
-    );
+    mergeReplacements([
+      ...frameworks.map(fw => fw.fileReplacements?.[mode]),
+      config.fileReplacements,
+    ]);
 
   return {
     plugins: [...frameworks.flatMap(fw => fw.esbuildPlugins ?? []), ...config.plugins],
@@ -43,8 +40,15 @@ export function resolveAdapterConfig(config: EsBuildAdapterConfig): ResolvedAdap
   };
 }
 
-function toFiles(replacements: Record<string, string | ReplacementConfig>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(replacements).map(([from, to]) => [from, typeof to === 'string' ? to : to.file])
-  );
+// A redefined key moves to the end: replaceSuffix lets the last matching key win, so an override
+// also beats a different key that matches the same file.
+function mergeReplacements(
+  sources: (Record<string, string | ReplacementConfig> | undefined)[]
+): Record<string, string> {
+  const merged = new Map<string, string>();
+  for (const [from, to] of sources.flatMap(source => Object.entries(source ?? {}))) {
+    merged.delete(from);
+    merged.set(from, typeof to === 'string' ? to : to.file);
+  }
+  return Object.fromEntries(merged);
 }

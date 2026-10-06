@@ -94,6 +94,45 @@ describe('sharedBuildOptions', () => {
     expect(entryFiles(options)).toEqual(['/workspace/foo/index-js']);
   });
 
+  // `endsWith` alone would let `react/index.js` swap preact's entry.
+  it('only matches whole path segments', () => {
+    const config = resolve({ fileReplacements: { 'foo/index.js': 'shim.js' } });
+    const options = sharedBuildOptions(
+      request({
+        entryPoints: [{ fileName: '/workspace/node_modules/xfoo/index.js', outName: 'x.js' }],
+      }),
+      config,
+      '/workspace'
+    );
+
+    expect(entryFiles(options)).toEqual(['/workspace/node_modules/xfoo/index.js']);
+  });
+
+  it('matches a key that is the whole entry path', () => {
+    const config = resolve({
+      fileReplacements: { '/workspace/node_modules/foo/index.js': '/shim.js' },
+    });
+    const options = sharedBuildOptions(request(), config, '/workspace');
+
+    expect(entryFiles(options)).toEqual(['/shim.js']);
+  });
+
+  // The user key is the shorter one here, so neither first nor longest match would pick it.
+  it('lets a user replacement beat a framework key matching the same file', () => {
+    const config = resolve({
+      frameworks: [
+        {
+          name: 'fw',
+          fileReplacements: { prod: { 'node_modules/foo/index.js': 'node_modules/foo/fw.js' } },
+        },
+      ],
+      fileReplacements: { 'foo/index.js': 'foo/user.js' },
+    });
+    const options = sharedBuildOptions(request(), config, '/workspace');
+
+    expect(entryFiles(options)).toEqual(['/workspace/node_modules/foo/user.js']);
+  });
+
   it('matches Windows entry paths', () => {
     const config = resolve({
       fileReplacements: { 'node_modules/foo/index.js': 'src/foo-shim.js' },

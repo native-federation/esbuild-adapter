@@ -30,8 +30,13 @@ export function createExternalsCacheKey(
   versions: KeyedVersions = readKeyedVersions()
 ): ExternalsCacheKey {
   const optionsFor = (dev: boolean) => {
-    const { plugins, ...options } = sharedPackageOptions(config, dev);
-    return stableStringify({ ...options, plugins: plugins.map(p => p.name) });
+    const { plugins, fileReplacements, ...options } = sharedPackageOptions(config, dev);
+    return stableStringify({
+      ...options,
+      plugins: plugins.map(p => p.name),
+      // As entries: their order decides which replacement wins, and stableStringify sorts keys.
+      fileReplacements: Object.entries(fileReplacements),
+    });
   };
 
   return {

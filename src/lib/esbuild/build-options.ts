@@ -97,10 +97,18 @@ function withDefaults(defaults: string[], extra: string[]): string[] {
   return [...defaults, ...extra.filter(ext => !defaults.includes(ext))];
 }
 
-// Keys match the end of the entry path and only that end is swapped, so a key like
-// `node_modules/foo/index.js` keeps the workspace prefix in front of its replacement.
+// Keys match whole trailing path segments and only that end is swapped, so a key like
+// `node_modules/foo/index.js` keeps the workspace prefix in front of its replacement. The last
+// matching key wins (see mergeReplacements).
 function replaceSuffix(fileName: string, replacements: Record<string, string>): string {
   const file = fileName.replace(/\\/g, '/');
-  const key = Object.keys(replacements).find(from => file.endsWith(from));
+  const key = Object.keys(replacements).findLast(from => endsWithSegments(file, from));
   return key ? file.slice(0, -key.length) + replacements[key] : fileName;
+}
+
+function endsWithSegments(file: string, suffix: string): boolean {
+  const start = file.length - suffix.length;
+  return (
+    file.endsWith(suffix) && (start === 0 || suffix.startsWith('/') || file[start - 1] === '/')
+  );
 }
