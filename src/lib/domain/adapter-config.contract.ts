@@ -10,8 +10,8 @@ export interface EsBuildAdapterConfig {
   fileReplacements?: Record<string, string | ReplacementConfig>;
   loader?: { [ext: string]: esbuild.Loader };
   frameworks?: NfFrameworkPlugin[];
-  // define and preserveSymlinks skip shared npm packages; target and sourcemap reach them and are
-  // part of the externals cache key.
+  // define and preserveSymlinks skip shared npm packages; fileReplacements, loader, target and
+  // sourcemap reach them and are part of the externals cache key.
   define?: Record<string, string>;
   preserveSymlinks?: boolean;
   target?: string | string[];

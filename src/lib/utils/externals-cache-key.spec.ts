@@ -13,7 +13,10 @@ const versions: KeyedVersions = {
   esbuild: '0.28.2',
 };
 
-type KeyedConfig = Pick<EsBuildAdapterConfig, 'target' | 'sourcemap'>;
+type KeyedConfig = Pick<
+  EsBuildAdapterConfig,
+  'target' | 'sourcemap' | 'fileReplacements' | 'loader'
+>;
 
 const keyOf = (config: KeyedConfig = {}, v: Partial<KeyedVersions> = {}) =>
   JSON.stringify(createExternalsCacheKey(config, { ...versions, ...v }));
@@ -63,6 +66,45 @@ describe('createExternalsCacheKey', () => {
     expect(keyOf({ sourcemap: true })).not.toBe(baseline);
     expect(keyOf({ sourcemap: false })).not.toBe(baseline);
     expect(keyOf({ sourcemap: 'external' })).not.toBe(keyOf({ sourcemap: true }));
+  });
+
+  // fileReplacements can rewrite a shared package's entry point, so it must invalidate externals.
+  it('changes with the file replacements', () => {
+    expect(
+      keyOf({ fileReplacements: { 'node_modules/foo/index.js': 'src/foo-shim.js' } })
+    ).not.toBe(baseline);
+    expect(keyOf({ fileReplacements: { 'node_modules/foo/index.js': 'src/a.js' } })).not.toBe(
+      keyOf({ fileReplacements: { 'node_modules/foo/index.js': 'src/b.js' } })
+    );
+  });
+
+  it('treats string and { file } replacements alike', () => {
+    expect(keyOf({ fileReplacements: { 'a.js': 'b.js' } })).toBe(
+      keyOf({ fileReplacements: { 'a.js': { file: 'b.js' } } })
+    );
+  });
+
+  it('ignores the order of file replacements', () => {
+    expect(keyOf({ fileReplacements: { 'a.js': 'x.js', 'b.js': 'y.js' } })).toBe(
+      keyOf({ fileReplacements: { 'b.js': 'y.js', 'a.js': 'x.js' } })
+    );
+  });
+
+  it('changes with the loader', () => {
+    expect(keyOf({ loader: { '.svg': 'dataurl' } })).not.toBe(baseline);
+    expect(keyOf({ loader: { '.svg': 'dataurl' } })).not.toBe(
+      keyOf({ loader: { '.svg': 'text' } })
+    );
+  });
+
+  it('ignores the order of loader entries', () => {
+    expect(keyOf({ loader: { '.svg': 'text', '.png': 'file' } })).toBe(
+      keyOf({ loader: { '.png': 'file', '.svg': 'text' } })
+    );
+  });
+
+  it('treats empty fileReplacements and loader as unset', () => {
+    expect(keyOf({ fileReplacements: {}, loader: {} })).toBe(baseline);
   });
 
   // These only reach source-code bundles, so they must not invalidate shared externals.
