@@ -1,12 +1,8 @@
 import { createRequire } from 'node:module';
 import * as esbuild from 'esbuild';
 import type { ExternalsCacheKey } from '@softarc/native-federation/domain';
-import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
-import { resolveFrameworkConfig } from '../core/resolve-framework-config.js';
-import {
-  nodeModulesBuildOptions,
-  NODE_MODULES_RESOLVE_EXTENSIONS,
-} from './node-modules-bundler.js';
+import type { ResolvedAdapterConfig } from './resolve-config.js';
+import { sharedPackageOptions } from './build-options.js';
 
 export interface KeyedVersions {
   adapter: string;
@@ -30,15 +26,17 @@ export function readKeyedVersions(): KeyedVersions {
 // Keyed on the adapter-derived npm bundle options for both modes, so any new option reaches the
 // key by default. Plugins are reduced to their name: the rest is behaviour or per-process state.
 export function createExternalsCacheKey(
-  config: EsBuildAdapterConfig,
+  config: ResolvedAdapterConfig,
   versions: KeyedVersions = readKeyedVersions()
 ): ExternalsCacheKey {
   const optionsFor = (dev: boolean) => {
-    const { plugins, ...options } = nodeModulesBuildOptions(
-      resolveFrameworkConfig(config, dev, NODE_MODULES_RESOLVE_EXTENSIONS),
-      dev
-    );
-    return stableStringify({ ...options, plugins: plugins.map(p => p.name) });
+    const { plugins, fileReplacements, ...options } = sharedPackageOptions(config, dev);
+    return stableStringify({
+      ...options,
+      plugins: plugins.map(p => p.name),
+      // As entries: their order decides which replacement wins, and stableStringify sorts keys.
+      fileReplacements: Object.entries(fileReplacements),
+    });
   };
 
   return {

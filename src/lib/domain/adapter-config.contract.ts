@@ -12,11 +12,12 @@ export interface EsBuildAdapterOptions {
 
 export interface EsBuildAdapterConfig {
   plugins: esbuild.Plugin[];
+  // Swaps the entry file of a shared npm package by path suffix; imports in source are untouched.
   fileReplacements?: Record<string, string | ReplacementConfig>;
   loader?: { [ext: string]: esbuild.Loader };
   frameworks?: NfFrameworkPlugin[];
-  // define and preserveSymlinks skip shared npm packages; see externals-cache-key.ts for what
-  // reaches them and invalidates the externals cache.
+  // define and preserveSymlinks skip shared npm packages; see build-options.ts for what reaches
+  // them and invalidates the externals cache.
   define?: Record<string, string>;
   preserveSymlinks?: boolean;
   target?: string | string[];

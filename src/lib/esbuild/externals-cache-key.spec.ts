@@ -5,6 +5,7 @@ import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js'
 import type { NfFrameworkPlugin } from '../domain/framework-plugin.contract.js';
 import { createEsBuildAdapter } from '../core/esbuild-adapter.js';
 import { reactFrameworkPlugin } from '../frameworks/react.js';
+import { resolveAdapterConfig } from './resolve-config.js';
 import {
   createExternalsCacheKey,
   readKeyedVersions,
@@ -17,7 +18,12 @@ const versions: KeyedVersions = {
 };
 
 const keyOf = (config: Partial<EsBuildAdapterConfig> = {}, v: Partial<KeyedVersions> = {}) =>
-  JSON.stringify(createExternalsCacheKey({ plugins: [], ...config }, { ...versions, ...v }));
+  JSON.stringify(
+    createExternalsCacheKey(resolveAdapterConfig({ plugins: [], ...config }), {
+      ...versions,
+      ...v,
+    })
+  );
 
 const plugin = (name: string): esbuild.Plugin => ({ name, setup: () => {} });
 
@@ -29,7 +35,7 @@ describe('createExternalsCacheKey', () => {
   });
 
   it('keys the npm bundle options per mode', () => {
-    const key = createExternalsCacheKey({ plugins: [] }, versions);
+    const key = createExternalsCacheKey(resolveAdapterConfig({ plugins: [] }), versions);
     expect(key.adapter).toBe(versions.adapter);
     expect(Object.keys(key.options!)).toEqual(['esbuild', 'dev', 'prod']);
     expect(key.options!['dev']).not.toBe(key.options!['prod']);
@@ -73,9 +79,10 @@ describe('createExternalsCacheKey', () => {
     );
   });
 
-  it('ignores the order of file replacements', () => {
-    expect(keyOf({ fileReplacements: { 'a.js': 'x.js', 'b.js': 'y.js' } })).toBe(
-      keyOf({ fileReplacements: { 'b.js': 'y.js', 'a.js': 'x.js' } })
+  // The last matching key wins, so with overlapping keys the order picks the entry file.
+  it('changes with the order of file replacements', () => {
+    expect(keyOf({ fileReplacements: { 'foo/index.js': 'x.js', 'index.js': 'y.js' } })).not.toBe(
+      keyOf({ fileReplacements: { 'index.js': 'y.js', 'foo/index.js': 'x.js' } })
     );
   });
 
@@ -125,32 +132,35 @@ describe('createExternalsCacheKey', () => {
 });
 
 describe('createExternalsCacheKey with frameworks', () => {
-  const react = () => keyOf({ frameworks: [reactFrameworkPlugin()] });
+  const fw: NfFrameworkPlugin = {
+    name: 'fw',
+    fileReplacements: { prod: { 'node_modules/foo/index.js': 'node_modules/foo/prod.js' } },
+  };
 
   it('is stable across separate preset instances', () => {
-    expect(react()).toBe(react());
+    expect(keyOf({ frameworks: [reactFrameworkPlugin()] })).toBe(
+      keyOf({ frameworks: [reactFrameworkPlugin()] })
+    );
   });
 
-  // The React preset swaps in CJS builds and the CommonJS plugin; dropping it must rebuild externals.
-  it('changes when the React preset is removed', () => {
-    expect(react()).not.toBe(keyOf({ frameworks: [] }));
+  it('changes when a preset with replacements is removed', () => {
+    expect(keyOf({ frameworks: [fw] })).not.toBe(keyOf({ frameworks: [] }));
   });
 
   it('changes when a user replacement overrides a framework replacement', () => {
     expect(
       keyOf({
-        frameworks: [reactFrameworkPlugin()],
-        fileReplacements: { 'node_modules/react/index.js': 'src/react-shim.js' },
+        frameworks: [fw],
+        fileReplacements: { 'node_modules/foo/index.js': 'src/foo-shim.js' },
       })
-    ).not.toBe(react());
+    ).not.toBe(keyOf({ frameworks: [fw] }));
   });
 
-  it('changes with needsCommonJsPlugin', () => {
-    const fw = (needsCommonJsPlugin: boolean): NfFrameworkPlugin => ({
-      name: 'fw',
-      needsCommonJsPlugin,
-    });
-    expect(keyOf({ frameworks: [fw(true)] })).not.toBe(keyOf({ frameworks: [fw(false)] }));
+  // CommonJS interop is always on, so the deprecated flag must not invalidate externals.
+  it('ignores needsCommonJsPlugin', () => {
+    expect(keyOf({ frameworks: [{ name: 'fw', needsCommonJsPlugin: true }] })).toBe(
+      keyOf({ frameworks: [{ name: 'fw' }] })
+    );
   });
 
   it('changes with framework resolveExtensions and esbuildPlugins', () => {
@@ -166,12 +176,12 @@ describe('createExternalsCacheKey with frameworks', () => {
     );
   });
 
-  // createEsBuildAdapter applies the React default before building the key.
-  it('keys an unset frameworks option like the React preset', () => {
+  // The React preset adds nothing, so dropping or adding it keeps the shared externals.
+  it('keys the adapter alike with or without frameworks or the React preset', () => {
     const adapterKey = (frameworks?: NfFrameworkPlugin[]) =>
       JSON.stringify(createEsBuildAdapter({ plugins: [], frameworks }).externalsCacheKey);
+    expect(adapterKey()).toBe(adapterKey([]));
     expect(adapterKey()).toBe(adapterKey([reactFrameworkPlugin()]));
-    expect(adapterKey()).not.toBe(adapterKey([]));
   });
 });
 

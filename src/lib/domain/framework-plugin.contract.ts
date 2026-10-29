@@ -12,5 +12,6 @@ export interface NfFrameworkPlugin {
   resolveExtensions?: string[];
   loader?: Record<string, esbuild.Loader>;
   esbuildPlugins?: esbuild.Plugin[];
+  /** @deprecated CommonJS interop is always on; this flag has no effect. */
   needsCommonJsPlugin?: boolean;
 }
