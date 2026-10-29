@@ -46,12 +46,13 @@ describe('sharedBuildOptions', () => {
     const { fileReplacements, plugins, ...keyed } = sharedPackageOptions(config, dev);
     expect(fileReplacements).toEqual({});
 
-    const { plugins: passedPlugins, ...rest } = sharedBuildOptions(
-      request({ dev }),
-      config,
-      '/workspace'
-    );
+    const {
+      options: { plugins: passedPlugins, ...rest },
+    } = sharedBuildOptions(request({ dev }), config, '/workspace');
     for (const key of REQUEST_PROVIDED) delete (rest as Record<string, unknown>)[key];
+    // Only adds a report next to the output (entry names); the bundles are the same.
+    expect(rest.metafile).toBe(true);
+    delete rest.metafile;
 
     expect(rest).toEqual(keyed);
     expect(passedPlugins!.slice(1)).toEqual(plugins);
@@ -59,7 +60,7 @@ describe('sharedBuildOptions', () => {
 
   it('always runs the CommonJS plugin first', () => {
     const user = { name: 'user', setup: () => undefined };
-    const options = sharedBuildOptions(request(), resolve({ plugins: [user] }), '/workspace');
+    const { options } = sharedBuildOptions(request(), resolve({ plugins: [user] }), '/workspace');
 
     expect(options.plugins!.map(p => p.name)).toEqual(['commonjs', 'user']);
   });
@@ -68,25 +69,29 @@ describe('sharedBuildOptions', () => {
     const config = resolve({
       fileReplacements: { 'node_modules/foo/index.js': 'src/foo-shim.js' },
     });
-    const options = sharedBuildOptions(request(), config, '/workspace');
+    const { options } = sharedBuildOptions(request(), config, '/workspace');
 
     expect(entryFiles(options)).toEqual(['/workspace/src/foo-shim.js']);
   });
 
-  it('does not modify the entry points core hands in', () => {
+  // The adapter matches esbuild's metafile, which names the replacement file, against the
+  // returned copies; core's own entry points must keep the original.
+  it('returns replaced copies and leaves the entry points core hands in untouched', () => {
     const req = request();
     const config = resolve({
       fileReplacements: { 'node_modules/foo/index.js': 'src/foo-shim.js' },
     });
-    sharedBuildOptions(req, config, '/workspace');
 
+    expect(sharedBuildOptions(req, config, '/workspace').entryPoints).toEqual([
+      { fileName: '/workspace/src/foo-shim.js', outName: 'foo.js' },
+    ]);
     expect(req.entryPoints[0]!.fileName).toBe('/workspace/node_modules/foo/index.js');
   });
 
   // Keys used to be regexes, so a '.' matched any character.
   it('matches replacement keys literally', () => {
     const config = resolve({ fileReplacements: { 'foo/index.js': 'shim.js' } });
-    const options = sharedBuildOptions(
+    const { options } = sharedBuildOptions(
       request({ entryPoints: [{ fileName: '/workspace/foo/index-js', outName: 'foo.js' }] }),
       config,
       '/workspace'
@@ -98,7 +103,7 @@ describe('sharedBuildOptions', () => {
   // `endsWith` alone would let `react/index.js` swap preact's entry.
   it('only matches whole path segments', () => {
     const config = resolve({ fileReplacements: { 'foo/index.js': 'shim.js' } });
-    const options = sharedBuildOptions(
+    const { options } = sharedBuildOptions(
       request({
         entryPoints: [{ fileName: '/workspace/node_modules/xfoo/index.js', outName: 'x.js' }],
       }),
@@ -113,7 +118,7 @@ describe('sharedBuildOptions', () => {
     const config = resolve({
       fileReplacements: { '/workspace/node_modules/foo/index.js': '/shim.js' },
     });
-    const options = sharedBuildOptions(request(), config, '/workspace');
+    const { options } = sharedBuildOptions(request(), config, '/workspace');
 
     expect(entryFiles(options)).toEqual(['/shim.js']);
   });
@@ -129,7 +134,7 @@ describe('sharedBuildOptions', () => {
       ],
       fileReplacements: { 'foo/index.js': 'foo/user.js' },
     });
-    const options = sharedBuildOptions(request(), config, '/workspace');
+    const { options } = sharedBuildOptions(request(), config, '/workspace');
 
     expect(entryFiles(options)).toEqual(['/workspace/node_modules/foo/user.js']);
   });
@@ -138,7 +143,7 @@ describe('sharedBuildOptions', () => {
     const config = resolve({
       fileReplacements: { 'node_modules/foo/index.js': 'src/foo-shim.js' },
     });
-    const options = sharedBuildOptions(
+    const { options } = sharedBuildOptions(
       request({
         entryPoints: [{ fileName: 'C:\\ws\\node_modules\\foo\\index.js', outName: 'foo.js' }],
       }),
@@ -152,7 +157,7 @@ describe('sharedBuildOptions', () => {
   it('appends framework extensions to the npm defaults without duplicates', () => {
     const config = resolve({ frameworks: [{ name: 'fw', resolveExtensions: ['.js', '.vue'] }] });
 
-    expect(sharedBuildOptions(request(), config, '/workspace').resolveExtensions).toEqual([
+    expect(sharedBuildOptions(request(), config, '/workspace').options.resolveExtensions).toEqual([
       '.mjs',
       '.js',
       '.cjs',
@@ -191,7 +196,7 @@ describe('sharedBuildOptions', () => {
       [true, '<DEV>', '<PROD>'],
       [false, '<PROD>', '<DEV>'],
     ])('bundles only the matching build (dev=%s)', async (dev, kept, dropped) => {
-      const options = sharedBuildOptions(
+      const { options } = sharedBuildOptions(
         request({
           dev,
           external: [],
@@ -214,7 +219,7 @@ describe('sharedBuildOptions', () => {
 
 describe('sourceBuildOptions', () => {
   it('passes define, preserveSymlinks and the tsconfig, and records a metafile', () => {
-    const options = sourceBuildOptions(
+    const { options } = sourceBuildOptions(
       request({
         kind: 'exposed',
         isMappingOrExposed: true,
@@ -239,7 +244,7 @@ describe('sourceBuildOptions', () => {
         request({ kind: 'exposed', isMappingOrExposed: true, mappedPaths }),
         resolve({ plugins: [user] }),
         '/workspace'
-      ).plugins!.map(p => p.name);
+      ).options.plugins!.map(p => p.name);
 
     expect(names({})).toEqual(['user']);
     expect(names({ '/workspace/libs/ui/index.ts': '@fixture/ui' })).toEqual([
@@ -249,13 +254,15 @@ describe('sourceBuildOptions', () => {
   });
 
   it('applies neither file replacements nor the CommonJS plugin', () => {
-    const options = sourceBuildOptions(
-      request({ kind: 'exposed', isMappingOrExposed: true }),
+    const req = request({ kind: 'exposed', isMappingOrExposed: true });
+    const { options, entryPoints } = sourceBuildOptions(
+      req,
       resolve({ fileReplacements: { 'node_modules/foo/index.js': 'src/foo-shim.js' } }),
       '/workspace'
     );
 
     expect(entryFiles(options)).toEqual(['/workspace/node_modules/foo/index.js']);
+    expect(entryPoints).toBe(req.entryPoints);
     expect(options.plugins).toEqual([]);
   });
 });
