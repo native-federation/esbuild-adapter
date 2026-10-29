@@ -10,11 +10,18 @@ import type {
   EsBuildAdapterConfig,
   EsBuildAdapterOptions,
 } from '../domain/adapter-config.contract.js';
-import type { CachedContext, EsbuildBundlerCache } from '../domain/adapter-context.contract.js';
+import type { EsbuildBundlerCache } from '../domain/adapter-context.contract.js';
 import { sharedBuildOptions, sourceBuildOptions } from '../esbuild/build-options.js';
 import { createExternalsCacheKey } from '../esbuild/externals-cache-key.js';
 import { resolveAdapterConfig } from '../esbuild/resolve-config.js';
 import { writeResult } from '../utils/write-result.js';
+
+interface CachedContext {
+  ctx: esbuild.BuildContext;
+  outdir: string;
+  bundlerCache: EsbuildBundlerCache | undefined;
+  workingDir: string;
+}
 
 export function createEsBuildAdapter(
   config: EsBuildAdapterConfig,
@@ -47,9 +54,10 @@ export function createEsBuildAdapter(
 
     // Read per setup: hosts may chdir into the project after creating the adapter.
     const workingDir = path.resolve(workspaceRoot ?? process.cwd());
-    const buildOptions = options.isMappingOrExposed
-      ? sourceBuildOptions(options, resolved, workingDir)
-      : sharedBuildOptions(options, resolved, workingDir);
+    const buildOptions =
+      options.kind === 'shared'
+        ? sharedBuildOptions(options, resolved, workingDir)
+        : sourceBuildOptions(options, resolved, workingDir);
 
     const ctx = await esbuild.context(buildOptions);
     // Core bundles in parallel and the builder disposes as soon as one fails; a context created
@@ -61,10 +69,7 @@ export function createEsBuildAdapter(
 
     contexts.set(name, {
       ctx,
-      name,
       outdir: options.outdir,
-      dev: !!options.dev,
-      isMappingOrExposed: options.isMappingOrExposed,
       bundlerCache: options.cache?.bundlerCache,
       workingDir,
     });
