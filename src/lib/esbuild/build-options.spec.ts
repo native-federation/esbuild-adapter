@@ -25,6 +25,7 @@ const request = (overrides: Partial<NFBuildAdapterOptions> = {}): NFBuildAdapter
   external: ['react'],
   outdir: '/workspace/dist',
   mappedPaths: {},
+  kind: 'shared',
   isMappingOrExposed: false,
   hash: false,
   cache: { externals: [], bundlerCache: undefined, cachePath: '/workspace/.cache' },
@@ -214,7 +215,11 @@ describe('sharedBuildOptions', () => {
 describe('sourceBuildOptions', () => {
   it('passes define, preserveSymlinks and the tsconfig, and records a metafile', () => {
     const options = sourceBuildOptions(
-      request({ isMappingOrExposed: true, tsConfigPath: '/workspace/tsconfig.json' }),
+      request({
+        kind: 'exposed',
+        isMappingOrExposed: true,
+        tsConfigPath: '/workspace/tsconfig.json',
+      }),
       resolve({ define: { BUILD_ID: '"42"' }, preserveSymlinks: true }),
       '/workspace'
     );
@@ -231,7 +236,7 @@ describe('sourceBuildOptions', () => {
     const user = { name: 'user', setup: () => undefined };
     const names = (mappedPaths: NFBuildAdapterOptions['mappedPaths']) =>
       sourceBuildOptions(
-        request({ isMappingOrExposed: true, mappedPaths }),
+        request({ kind: 'exposed', isMappingOrExposed: true, mappedPaths }),
         resolve({ plugins: [user] }),
         '/workspace'
       ).plugins!.map(p => p.name);
@@ -245,7 +250,7 @@ describe('sourceBuildOptions', () => {
 
   it('applies neither file replacements nor the CommonJS plugin', () => {
     const options = sourceBuildOptions(
-      request({ isMappingOrExposed: true }),
+      request({ kind: 'exposed', isMappingOrExposed: true }),
       resolve({ fileReplacements: { 'node_modules/foo/index.js': 'src/foo-shim.js' } }),
       '/workspace'
     );

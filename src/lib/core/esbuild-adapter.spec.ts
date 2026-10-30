@@ -1,7 +1,7 @@
 import type * as esbuildTypes from 'esbuild';
 import * as os from 'os';
 import * as path from 'path';
-import type { NFBuildAdapterOptions } from '@softarc/native-federation/domain';
+import type { NFBuildAdapterOptions, NFBundleKind } from '@softarc/native-federation/domain';
 import { AbortedError } from '@softarc/native-federation/internal';
 import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
 import type { EsbuildBundlerCache } from '../domain/adapter-context.contract.js';
@@ -36,7 +36,7 @@ const workspaceRoot = path.resolve('/workspace/apps/remote');
 const posix = (p: string) => p.split(path.sep).join('/');
 
 const setupOptions = (
-  isMappingOrExposed: boolean,
+  kind: NFBundleKind,
   bundlerCache: EsbuildBundlerCache = new Map(),
   entry = 'src/exposed.ts'
 ): NFBuildAdapterOptions<EsbuildBundlerCache> => ({
@@ -44,7 +44,9 @@ const setupOptions = (
   external: [],
   outdir: path.join(workspaceRoot, 'dist'),
   mappedPaths: {},
-  isMappingOrExposed,
+  kind,
+  // Still required by core 4.9's typings; deprecated in favour of `kind`.
+  isMappingOrExposed: kind !== 'shared',
   hash: true,
   cache: { externals: [], bundlerCache, cachePath: path.join(workspaceRoot, '.cache') },
 });
@@ -62,20 +64,27 @@ describe('createEsBuildAdapter', () => {
       dispose: ReturnType<typeof vi.fn>;
     };
 
-  // Output names hash the entry paths relative to esbuild's working dir.
-  it.each([true, false])(
-    'runs esbuild from the workspace root (isMappingOrExposed=%s)',
-    async isMappingOrExposed => {
+  // Output names hash the entry paths relative to esbuild's working dir. Only the shared options
+  // define NODE_ENV, which tells the two apart.
+  it.each([
+    ['shared', true],
+    ['mapping', false],
+    ['exposed', false],
+  ] as const)(
+    'runs the %s options from the workspace root (defines NODE_ENV: %s)',
+    async (kind, definesNodeEnv) => {
       const adapter = createEsBuildAdapter({ plugins: [], frameworks: [] }, { workspaceRoot });
-      await adapter.setup('bundle', setupOptions(isMappingOrExposed));
+      await adapter.setup('bundle', setupOptions(kind));
 
-      expect(vi.mocked(esbuild.context).mock.calls[0]![0].absWorkingDir).toBe(workspaceRoot);
+      const options = vi.mocked(esbuild.context).mock.calls[0]![0];
+      expect(options.absWorkingDir).toBe(workspaceRoot);
+      expect(options.define?.['process.env.NODE_ENV'] !== undefined).toBe(definesNodeEnv);
     }
   );
 
   it('defaults the working dir to cwd', async () => {
     const adapter = createEsBuildAdapter({ plugins: [], frameworks: [] });
-    await adapter.setup('bundle', setupOptions(true));
+    await adapter.setup('bundle', setupOptions('exposed'));
 
     expect(vi.mocked(esbuild.context).mock.calls[0]![0].absWorkingDir).toBe(process.cwd());
   });
@@ -86,7 +95,7 @@ describe('createEsBuildAdapter', () => {
       { plugins: [], frameworks: [] },
       { workspaceRoot: 'apps/remote' }
     );
-    await adapter.setup('bundle', setupOptions(true));
+    await adapter.setup('bundle', setupOptions('exposed'));
 
     expect(vi.mocked(esbuild.context).mock.calls[0]![0].absWorkingDir).toBe(
       path.resolve('apps/remote')
@@ -100,7 +109,7 @@ describe('createEsBuildAdapter', () => {
     process.chdir(os.tmpdir());
     const setupCwd = process.cwd();
     try {
-      await adapter.setup('bundle', setupOptions(true));
+      await adapter.setup('bundle', setupOptions('exposed'));
     } finally {
       process.chdir(cwd);
     }
@@ -112,7 +121,7 @@ describe('createEsBuildAdapter', () => {
   it('records the bundled files as absolute posix paths under the workspace root', async () => {
     const bundlerCache: EsbuildBundlerCache = new Map();
     const adapter = createEsBuildAdapter({ plugins: [], frameworks: [] }, { workspaceRoot });
-    await adapter.setup('bundle', setupOptions(true, bundlerCache));
+    await adapter.setup('bundle', setupOptions('exposed', bundlerCache));
     await adapter.build('bundle');
 
     expect([...bundlerCache.keys()]).toEqual([
@@ -132,8 +141,8 @@ describe('createEsBuildAdapter', () => {
   // context it left behind.
   it('replaces the context when a bundle is set up again', async () => {
     const adapter = createEsBuildAdapter({ plugins: [] }, { workspaceRoot });
-    await adapter.setup('bundle', setupOptions(false, undefined, 'src/old.ts'));
-    await adapter.setup('bundle', setupOptions(false, undefined, 'src/new.ts'));
+    await adapter.setup('bundle', setupOptions('shared', undefined, 'src/old.ts'));
+    await adapter.setup('bundle', setupOptions('shared', undefined, 'src/new.ts'));
 
     expect(vi.mocked(esbuild.context)).toHaveBeenCalledTimes(2);
     expect((await contextAt(0)).dispose).toHaveBeenCalledOnce();
@@ -148,8 +157,8 @@ describe('createEsBuildAdapter', () => {
   // The esbuild service is shared by every context in the process, other builders included.
   it('disposes its contexts but leaves the esbuild service running', async () => {
     const adapter = createEsBuildAdapter({ plugins: [] }, { workspaceRoot });
-    await adapter.setup('a', setupOptions(true));
-    await adapter.setup('b', setupOptions(false));
+    await adapter.setup('a', setupOptions('exposed'));
+    await adapter.setup('b', setupOptions('shared'));
     await adapter.dispose();
 
     expect((await contextAt(0)).dispose).toHaveBeenCalledOnce();
@@ -172,7 +181,7 @@ describe('createEsBuildAdapter', () => {
       () => promise as unknown as ReturnType<typeof esbuild.context>
     );
 
-    const setup = adapter.setup('late', setupOptions(false));
+    const setup = adapter.setup('late', setupOptions('shared'));
     await vi.waitFor(() => expect(esbuild.context).toHaveBeenCalledOnce());
     await adapter.dispose();
     resolve(late);
@@ -185,7 +194,7 @@ describe('createEsBuildAdapter', () => {
   it('keeps working for setups started after a dispose', async () => {
     const adapter = createEsBuildAdapter({ plugins: [] }, { workspaceRoot });
     await adapter.dispose();
-    await adapter.setup('bundle', setupOptions(true));
+    await adapter.setup('bundle', setupOptions('exposed'));
 
     await expect(adapter.build('bundle')).resolves.toEqual([]);
   });
@@ -197,7 +206,7 @@ describe('createEsBuildAdapter', () => {
 
   it('cancels the esbuild rebuild and reports an abort when the signal fires', async () => {
     const adapter = createEsBuildAdapter({ plugins: [] }, { workspaceRoot });
-    await adapter.setup('bundle', setupOptions(true));
+    await adapter.setup('bundle', setupOptions('exposed'));
     const ctx = await contextAt(0);
     const controller = new AbortController();
     ctx.rebuild.mockImplementationOnce(async () => {
@@ -215,7 +224,7 @@ describe('createEsBuildAdapter', () => {
   it('does not record the output of a rebuild that finished after an abort', async () => {
     const bundlerCache: EsbuildBundlerCache = new Map();
     const adapter = createEsBuildAdapter({ plugins: [] }, { workspaceRoot });
-    await adapter.setup('bundle', setupOptions(true, bundlerCache));
+    await adapter.setup('bundle', setupOptions('exposed', bundlerCache));
     const ctx = await contextAt(0);
     const controller = new AbortController();
     ctx.rebuild.mockImplementationOnce(async () => {

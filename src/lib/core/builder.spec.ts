@@ -79,7 +79,10 @@ function createFixture(root: string): void {
     JSON.stringify({ name: 'tiny-dep', version: '1.2.3', type: 'module', exports: './index.js' })
   );
   write('node_modules/tiny-dep/index.js', `export const greet = name => 'hello ' + name;\n`);
-  write('libs/ui/index.ts', `export const button = (label: string) => '[' + label + ']';\n`);
+  write(
+    'libs/ui/index.ts',
+    `export const button = (label: string) => '[' + label + ']<ROOT_UI>';\n`
+  );
   write(
     'src/component.ts',
     [
@@ -268,6 +271,42 @@ function createFixture(root: string): void {
     ].join('\n')
   );
 
+  // An app whose tsconfig.json and tsconfig.base.json map '@fixture/ui' to different libs. Core's
+  // own lookup prefers tsconfig.base.json (and from cwd it would find the repo root's tsconfig), so
+  // only the builder's tsconfig.json default lands on <TSCONFIG_JSON>.
+  write(
+    'apps/tsdefault/package.json',
+    JSON.stringify({ name: 'tsdefault', version: '1.0.0', dependencies: {} })
+  );
+  for (const [file, lib] of [
+    ['tsconfig.json', 'from-json'],
+    ['tsconfig.base.json', 'from-base'],
+  ] as const) {
+    write(
+      `apps/tsdefault/${file}`,
+      JSON.stringify({ compilerOptions: { paths: { '@fixture/ui': [`./libs/${lib}/index.ts`] } } })
+    );
+  }
+  write('apps/tsdefault/libs/from-json/index.ts', `export const ui = () => '<TSCONFIG_JSON>';\n`);
+  write('apps/tsdefault/libs/from-base/index.ts', `export const ui = () => '<TSCONFIG_BASE>';\n`);
+  write(
+    'apps/tsdefault/src/component.ts',
+    `import { ui } from '@fixture/ui';\nexport const render = () => ui();\n`
+  );
+  write(
+    'apps/tsdefault/federation.config.mjs',
+    [
+      `import { withNativeFederation } from '@softarc/native-federation/config';`,
+      `export default withNativeFederation({`,
+      `  name: 'tsdefault',`,
+      `  exposes: { './component': './src/component.ts' },`,
+      `  shared: {},`,
+      `  sharedMappings: ['@fixture/ui'],`,
+      `});`,
+      '',
+    ].join('\n')
+  );
+
   // federation.config.mjs imports core; link the adapter's copy so it resolves from the tmp dir.
   const require = createRequire(import.meta.url);
   const corePkg = path.dirname(require.resolve('@softarc/native-federation/package.json'));
@@ -285,8 +324,9 @@ describe('runEsBuildBuilder', () => {
     originalCwd = process.cwd();
     root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nf-esbuild-')));
     createFixture(root);
-    // core finds the root tsconfig from cwd and esbuild pins cwd as its working dir when first
-    // loaded, so chdir before importing the builder (vitest isolates modules per spec file).
+    // esbuild pins cwd as its working dir when first loaded, so chdir before importing the builder
+    // (vitest isolates modules per spec file). Core reads the builder's tsConfig and only falls back
+    // to the tsconfig next to cwd's package.json when there is none (the apps/remote case below).
     process.chdir(root);
     ({ runEsBuildBuilder } = await import('./builder.js'));
   });
@@ -490,6 +530,28 @@ describe('runEsBuildBuilder', () => {
     expect(fs.existsSync(path.join(root, 'dist-app'))).toBe(false);
   });
 
+  it('reads the shared mappings from <workspaceRoot>/tsconfig.json when tsConfig is not set', async () => {
+    const appRoot = path.join(root, 'apps/tsdefault');
+    const builder = await runEsBuildBuilder('federation.config.mjs', {
+      workspaceRoot: appRoot,
+      outputPath: 'dist',
+      cachePath: 'node_modules/.cache/nf',
+      adapterConfig: { plugins: [], frameworks: [] },
+    });
+    await builder.close();
+
+    expect(builder.options.tsConfig).toBe(path.join(appRoot, 'tsconfig.json'));
+    const ui = (builder.federationInfo.shared as SharedInfo[]).find(
+      s => s.packageName === '@fixture/ui'
+    );
+    const code = fs.readFileSync(path.join(appRoot, 'dist', ui!.outFileName), 'utf-8');
+    expect(code).toContain('<TSCONFIG_JSON>');
+    // Neither tsconfig.base.json (core's preference) nor the repo root's tsconfig (core's lookup
+    // from cwd, mapping to libs/ui) may win.
+    expect(code).not.toContain('<TSCONFIG_BASE>');
+    expect(code).not.toContain('<ROOT_UI>');
+  });
+
   describe('watch mode', () => {
     let rebuildForFederation: ReturnType<typeof vi.fn>;
 
@@ -534,6 +596,35 @@ describe('runEsBuildBuilder', () => {
         expect(rebuildForFederation.mock.calls[0]![3]).toEqual([added]);
       } finally {
         await builder.close();
+      }
+    });
+
+    it('rebuilds an edited expose into a new output file', async () => {
+      const source = path.join(root, 'src/watched.ts');
+      const original = fs.readFileSync(source, 'utf-8');
+      const builder = await watch();
+      try {
+        const outFileName = () =>
+          builder.federationInfo.exposes.find(e => e.key === './watched')!.outFileName;
+        const before = outFileName();
+
+        fs.writeFileSync(source, original + `export const marker = () => '<EDITED>';\n`);
+        change(posix(source));
+
+        await vi.waitFor(
+          () => {
+            const after = outFileName();
+            expect(after).not.toBe(before);
+            expect(fs.readFileSync(path.join(root, 'dist-watch', after), 'utf-8')).toContain(
+              '<EDITED>'
+            );
+          },
+          { timeout: 5000 }
+        );
+      } finally {
+        await builder.close();
+        // The other watch specs build the same expose into the same output path.
+        fs.writeFileSync(source, original);
       }
     });
 
