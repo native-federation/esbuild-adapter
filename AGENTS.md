@@ -39,6 +39,7 @@ A **single-package repository**, published from the root.
 ### Package exports
 
 - `.` - `createEsBuildAdapter`, `runEsBuildBuilder`, `normalizeBuilderOptions`, framework presets
+- `./config` - `ESBUILD_SKIP_LIST`
 - `./domain` - contracts (`EsBuildAdapterConfig`, `EsBuildBuilderOptions`, `NfFrameworkPlugin`, ...)
 - `./frameworks/react` - `REACT_SKIP_LIST` (and the deprecated, empty React preset)
 
