@@ -21,7 +21,7 @@ For the smoothest experience, we find that contributions focusing on functionali
 
 ## Pull Request Guidelines
 
-- `// todo:` Include tests for any new features
+- Include tests for any new features
 - Update documentation if needed
 - Follow our coding style (eslint)
 - Keep PRs focused - one feature or bug fix per PR

@@ -3,7 +3,6 @@
     "rootDir": ".",
     "declaration": true,
     "forceConsistentCasingInFileNames": true,
-    "importHelpers": true,
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "noEmitOnError": true,

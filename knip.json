@@ -6,6 +6,6 @@
   "ignoreDependencies": ["prettier"],
   "vitest": {
     "config": ["vite.config.ts"],
-    "entry": ["src/**/*.{spec,test}.ts", "src/**/__test-helpers__/**/*.ts"]
+    "entry": ["src/**/*.spec.ts"]
   }
 }
