@@ -3,10 +3,12 @@ import * as os from 'os';
 import * as path from 'path';
 import { createRequire } from 'module';
 import type { FederationInfo, SharedInfo } from '@softarc/native-federation';
+import type { NFBuildAdapterResult } from '@softarc/native-federation/domain';
 import type * as BuilderModule from './builder.js';
 import type { EsBuildAdapterConfig } from '../domain/adapter-config.contract.js';
 import type * as CoreModule from '@softarc/native-federation';
 import type * as InternalModule from '@softarc/native-federation/internal';
+import type * as WriteResultModule from '../utils/write-result.js';
 import {
   AbortedError,
   type NfFileWatcher,
@@ -37,6 +39,21 @@ vi.mock('@softarc/native-federation/internal', async importOriginal => ({
     };
   },
 }));
+
+// Records what the adapter hands core: shared bundles aren't hashed, so remoteEntry.json alone can't
+// tell `entry` matching apart from core's fallback to name matching.
+const adapterResults = vi.hoisted(() => [] as NFBuildAdapterResult[]);
+
+vi.mock('../utils/write-result.js', async importOriginal => {
+  const actual = await importOriginal<typeof WriteResultModule>();
+  return {
+    writeResult: (...args: Parameters<typeof actual.writeResult>) => {
+      const results = actual.writeResult(...args);
+      adapterResults.push(...results);
+      return results;
+    },
+  };
+});
 
 vi.mock('@softarc/native-federation', async importOriginal => {
   const actual = await importOriginal<typeof CoreModule>();
@@ -79,6 +96,7 @@ function createFixture(root: string): void {
     JSON.stringify({ name: 'tiny-dep', version: '1.2.3', type: 'module', exports: './index.js' })
   );
   write('node_modules/tiny-dep/index.js', `export const greet = name => 'hello ' + name;\n`);
+  write('src/tiny-dep-shim.js', `export const greet = name => '<SHIM> ' + name;\n`);
   write(
     'libs/ui/index.ts',
     `export const button = (label: string) => '[' + label + ']<ROOT_UI>';\n`
@@ -128,6 +146,26 @@ function createFixture(root: string): void {
       ].join('\n')
     );
   }
+
+  // An expose named like the chunk esbuild splits out of it, with the default [name]-[hash] names
+  // its output and that chunk both come out as chunk-<hash>.js.
+  write(
+    'src/chunk.ts',
+    `import { shout } from './common';\nexport const chunk = () => shout('<CHUNK_ENTRY>');\n`
+  );
+  write(
+    'federation.chunk-name.config.mjs',
+    [
+      `import { withNativeFederation } from '@softarc/native-federation/config';`,
+      `export default withNativeFederation({`,
+      `  name: 'chunk-name',`,
+      `  exposes: { './chunk': './src/chunk.ts', './a': './src/a.ts' },`,
+      `  shared: {},`,
+      `  chunks: true,`,
+      `});`,
+      '',
+    ].join('\n')
+  );
 
   // An expose reaching into a mapped lib by relative path, both through a file the barrel
   // re-exports and through one it keeps private.
@@ -428,6 +466,43 @@ describe('runEsBuildBuilder', () => {
       expect(code).not.toContain('!!!');
       expect(code).toContain(chunkImport);
     }
+  });
+
+  // core#193: without `entry`, core cut `chunk-<hash>.js` at its last `-` and published the split
+  // chunk as `./chunk`.
+  it('maps an expose named "chunk" to its own entry, not to a split chunk', async () => {
+    const { outDir, remoteEntry } = await build(
+      'federation.chunk-name.config.mjs',
+      'dist-chunk-name'
+    );
+
+    const chunkExpose = remoteEntry.exposes.find(e => e.key === './chunk')!;
+    expect(chunkExpose.outFileName).toMatch(/^chunk-[A-Z2-7]{8}\.js$/);
+    expect(fs.readFileSync(path.join(outDir, chunkExpose.outFileName), 'utf-8')).toContain(
+      '<CHUNK_ENTRY>'
+    );
+    const chunks = Object.values(remoteEntry.chunks ?? {}).flat();
+    expect(chunks).not.toContain(chunkExpose.outFileName);
+
+    const aExpose = remoteEntry.exposes.find(e => e.key === './a')!;
+    expect(aExpose.outFileName).toMatch(/^a-[A-Z2-7]{8}\.js$/);
+    expect(chunks).not.toContain(aExpose.outFileName);
+    expect(fs.readFileSync(path.join(outDir, aExpose.outFileName), 'utf-8')).toMatch(
+      /\(["']a["']\)/
+    );
+  });
+
+  // esbuild reports the replacement file as the entry point, so the adapter must match against it.
+  it('names the entry of a shared package built from a replacement file', async () => {
+    adapterResults.length = 0;
+    const { outDir, remoteEntry } = await build('federation.config.mjs', 'dist-replaced', {
+      fileReplacements: { 'node_modules/tiny-dep/index.js': 'src/tiny-dep-shim.js' },
+    });
+
+    const tinyDep = (remoteEntry.shared as SharedInfo[]).find(s => s.packageName === 'tiny-dep')!;
+    expect(fs.readFileSync(path.join(outDir, tinyDep.outFileName), 'utf-8')).toContain('<SHIM>');
+    const result = adapterResults.find(r => path.basename(r.fileName) === tinyDep.outFileName);
+    expect(result?.entry).toBeDefined();
   });
 
   it('rewrites a relative import into a shared mapping to the mapping specifier', async () => {

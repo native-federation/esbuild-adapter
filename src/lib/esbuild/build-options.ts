@@ -13,11 +13,11 @@ export function sourceBuildOptions(
   request: NFBuildAdapterOptions,
   config: ResolvedAdapterConfig,
   absWorkingDir: string
-): esbuild.BuildOptions {
+): { options: esbuild.BuildOptions; entryPoints: EntryPoint[] } {
   const dev = !!request.dev;
   const hasMappings = Object.keys(request.mappedPaths).length > 0;
 
-  return {
+  const options: esbuild.BuildOptions = {
     ...requestOptions(request, absWorkingDir, request.entryPoints),
     write: false,
     metafile: true,
@@ -36,6 +36,7 @@ export function sourceBuildOptions(
       ...config.plugins,
     ],
   };
+  return { options, entryPoints: request.entryPoints };
 }
 
 // Shared npm packages. Their output is cached across builds, so every option derived from the
@@ -44,17 +45,24 @@ export function sharedBuildOptions(
   request: NFBuildAdapterOptions,
   config: ResolvedAdapterConfig,
   absWorkingDir: string
-): esbuild.BuildOptions {
+): { options: esbuild.BuildOptions; entryPoints: EntryPoint[] } {
   const { fileReplacements, plugins, ...options } = sharedPackageOptions(config, !!request.dev);
+  // esbuild reports a replaced entry under its replacement file, so entry names are matched
+  // against these copies; core's own entry points keep their original file.
   const entryPoints = request.entryPoints.map(ep => ({
     ...ep,
     fileName: replaceSuffix(ep.fileName, fileReplacements),
   }));
 
   return {
-    ...options,
-    ...requestOptions(request, absWorkingDir, entryPoints),
-    plugins: [createCommonJsPlugin(request.external), ...plugins],
+    options: {
+      ...options,
+      ...requestOptions(request, absWorkingDir, entryPoints),
+      // Doesn't change the output, so it's kept out of sharedPackageOptions and the cache key.
+      metafile: true,
+      plugins: [createCommonJsPlugin(request.external), ...plugins],
+    },
+    entryPoints,
   };
 }
 

@@ -1,4 +1,5 @@
 import type {
+  EntryPoint,
   NFBuildAdapter,
   NFBuildAdapterOptions,
   NFBuildAdapterResult,
@@ -13,11 +14,13 @@ import type {
 import type { EsbuildBundlerCache } from '../domain/adapter-context.contract.js';
 import { sharedBuildOptions, sourceBuildOptions } from '../esbuild/build-options.js';
 import { createExternalsCacheKey } from '../esbuild/externals-cache-key.js';
+import { entriesByOutputName } from '../esbuild/output-entries.js';
 import { resolveAdapterConfig } from '../esbuild/resolve-config.js';
 import { writeResult } from '../utils/write-result.js';
 
 interface CachedContext {
   ctx: esbuild.BuildContext;
+  entryPoints: EntryPoint[];
   outdir: string;
   bundlerCache: EsbuildBundlerCache | undefined;
   workingDir: string;
@@ -54,14 +57,12 @@ export function createEsBuildAdapter(
 
     // Read per setup: hosts may chdir into the project after creating the adapter.
     const workingDir = path.resolve(workspaceRoot ?? process.cwd());
-    const buildOptions =
-      options.kind === 'shared'
-        ? sharedBuildOptions(options, resolved, workingDir)
-        : sourceBuildOptions(options, resolved, workingDir);
+    const buildOptionsFor = options.kind === 'shared' ? sharedBuildOptions : sourceBuildOptions;
+    const { options: buildOptions, entryPoints } = buildOptionsFor(options, resolved, workingDir);
 
     const ctx = await esbuild.context(buildOptions);
-    // Core bundles in parallel and the builder disposes as soon as one fails; a context created
-    // after that would never be disposed and keep the process alive.
+    // A host may dispose() while setup is in flight; a context created after that would never be
+    // disposed and keep the process alive.
     if (generation !== startedIn) {
       await ctx.dispose();
       throw new AbortedError('[setup] Adapter disposed during setup');
@@ -69,8 +70,10 @@ export function createEsBuildAdapter(
 
     contexts.set(name, {
       ctx,
+      entryPoints,
       outdir: options.outdir,
-      bundlerCache: options.cache?.bundlerCache,
+      // Shared inputs live in node_modules, which the watcher ignores.
+      bundlerCache: options.kind === 'shared' ? undefined : options.cache.bundlerCache,
       workingDir,
     });
   };
@@ -79,22 +82,22 @@ export function createEsBuildAdapter(
     name: string,
     { modifiedFiles, signal }: { modifiedFiles?: string[]; signal?: AbortSignal } = {}
   ): Promise<NFBuildAdapterResult[]> => {
-    const entry = contexts.get(name);
-    if (!entry) {
+    const bundle = contexts.get(name);
+    if (!bundle) {
       throw new Error(`No context found for build "${name}". Call setup() first.`);
     }
     if (signal?.aborted) {
       throw new AbortedError('[build] Aborted before rebuild');
     }
 
-    for (const file of modifiedFiles ?? []) entry.bundlerCache?.delete(file);
+    for (const file of modifiedFiles ?? []) bundle.bundlerCache?.delete(file);
 
-    const cancel = () => void entry.ctx.cancel().catch(() => undefined);
+    const cancel = () => void bundle.ctx.cancel().catch(() => undefined);
     signal?.addEventListener('abort', cancel, { once: true });
 
     let result: esbuild.BuildResult;
     try {
-      result = await entry.ctx.rebuild();
+      result = await bundle.ctx.rebuild();
     } catch (error) {
       throw signal?.aborted ? new AbortedError('[build] esbuild rebuild was canceled') : error;
     } finally {
@@ -104,19 +107,25 @@ export function createEsBuildAdapter(
       throw new AbortedError('[build] Aborted after rebuild');
     }
 
-    const writtenFiles = writeResult(result, entry.outdir);
+    // Without `entry`, core matches hashed entries by file name (core#193).
+    const entryByOutputName = entriesByOutputName(
+      result.metafile,
+      bundle.entryPoints,
+      bundle.workingDir
+    );
+    const written = writeResult(result, bundle.outdir, entryByOutputName);
 
-    if (entry.bundlerCache && result.metafile) {
+    if (bundle.bundlerCache && result.metafile) {
       // Metafile paths are relative to absWorkingDir; the keys must be absolute posix paths to
       // match the changes the watcher reports.
       for (const input of Object.keys(result.metafile.inputs)) {
         if (isVirtualInput(input)) continue;
-        const file = path.resolve(entry.workingDir, input).split(path.sep).join('/');
-        entry.bundlerCache.set(file, null);
+        const file = path.resolve(bundle.workingDir, input).split(path.sep).join('/');
+        bundle.bundlerCache.set(file, null);
       }
     }
 
-    return writtenFiles.map(fileName => ({ fileName }));
+    return written;
   };
 
   return { externalsCacheKey: createExternalsCacheKey(resolved), setup, build, dispose };

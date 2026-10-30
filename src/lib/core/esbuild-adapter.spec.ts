@@ -1,4 +1,5 @@
 import type * as esbuildTypes from 'esbuild';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { NFBuildAdapterOptions, NFBundleKind } from '@softarc/native-federation/domain';
@@ -128,6 +129,45 @@ describe('createEsBuildAdapter', () => {
       posix(path.join(workspaceRoot, 'src/exposed.ts')),
       posix(path.join(workspaceRoot, 'libs/ui/index.ts')),
     ]);
+  });
+
+  // Shared bundles get a metafile too (for entry names), but npm packages aren't watched.
+  it.each([
+    ['shared', 0],
+    ['mapping', 2],
+    ['exposed', 2],
+  ] as const)('records %s bundle inputs in the bundler cache: %i', async (kind, recorded) => {
+    const bundlerCache: EsbuildBundlerCache = new Map();
+    const adapter = createEsBuildAdapter({ plugins: [], frameworks: [] }, { workspaceRoot });
+    await adapter.setup('bundle', setupOptions(kind, bundlerCache));
+    await adapter.build('bundle');
+
+    expect(bundlerCache.size).toBe(recorded);
+  });
+
+  // esbuild's metafile names a replaced shared entry by its replacement file, not by core's.
+  it('names the entry of a shared bundle built from a replacement file', async () => {
+    const outdir = fs.mkdtempSync(path.join(os.tmpdir(), 'nf-esbuild-adapter-'));
+    const adapter = createEsBuildAdapter(
+      { plugins: [], fileReplacements: { 'src/exposed.ts': 'src/shim.js' } },
+      { workspaceRoot }
+    );
+    await adapter.setup('bundle', { ...setupOptions('shared'), outdir });
+    (await contextAt(0)).rebuild.mockResolvedValueOnce({
+      outputFiles: [{ path: '/virtual/exposed-ABCDEFGH.js', contents: new Uint8Array() }],
+      metafile: {
+        inputs: {},
+        outputs: { 'dist/exposed-ABCDEFGH.js': { entryPoint: 'src/shim.js' } },
+      },
+    });
+
+    try {
+      await expect(adapter.build('bundle')).resolves.toEqual([
+        { fileName: path.join(outdir, 'exposed-ABCDEFGH.js'), entry: 'exposed.js' },
+      ]);
+    } finally {
+      fs.rmSync(outdir, { recursive: true, force: true });
+    }
   });
 
   it('does not modify the config it is given', () => {
