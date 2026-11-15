@@ -4,8 +4,7 @@ import type {
   EsBuildBuilderOptions,
   NormalizedEsBuildBuilderOptions,
 } from '../domain/builder-config.contract.js';
-import { getDefaultCachePath } from '@softarc/native-federation/internal';
-import { toDiskCase } from '../utils/disk-case.js';
+import { getDefaultCachePath, toDiskCase } from '@softarc/native-federation/internal';
 
 export function normalizeBuilderOptions(
   options: EsBuildBuilderOptions

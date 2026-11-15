@@ -1,18 +1,8 @@
-import type { SkipList } from '@softarc/native-federation/config';
+import { isInSkipList, prepareSkipList } from '@softarc/native-federation/internal';
 import { REACT_SKIP_LIST } from './react.js';
 
-// Mirrors core's isInSkipList (not exported): strings match exactly, regexes and functions test.
-const isInSkipList = (pkg: string, skipList: SkipList) =>
-  skipList.some(entry =>
-    typeof entry === 'string'
-      ? entry === pkg
-      : typeof entry === 'function'
-        ? entry(pkg)
-        : entry.test(pkg)
-  );
-
 describe('REACT_SKIP_LIST', () => {
-  const skipList = REACT_SKIP_LIST;
+  const skipList = prepareSkipList(REACT_SKIP_LIST);
 
   it.each([
     '@softarc/native-federation-esbuild',

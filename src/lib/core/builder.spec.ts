@@ -113,11 +113,11 @@ function createFixture(root: string): void {
   write(
     'federation.config.mjs',
     [
-      `import { withNativeFederation, share } from '@softarc/native-federation/config';`,
+      `import { withNativeFederation, fromPackageJson } from '@softarc/native-federation/config';`,
       `export default withNativeFederation({`,
       `  name: 'fixture',`,
       `  exposes: { './component': './src/component.ts' },`,
-      `  shared: share({ 'tiny-dep': { singleton: true, strictVersion: true, requiredVersion: 'auto' } }),`,
+      `  shared: fromPackageJson({ singleton: true, strictVersion: true, requiredVersion: 'auto' }).only(['tiny-dep']),`,
       `  sharedMappings: ['@fixture/ui'],`,
       `});`,
       '',
@@ -219,11 +219,11 @@ function createFixture(root: string): void {
   write(
     'federation.passthrough.config.mjs',
     [
-      `import { withNativeFederation, share } from '@softarc/native-federation/config';`,
+      `import { withNativeFederation, fromPackageJson } from '@softarc/native-federation/config';`,
       `export default withNativeFederation({`,
       `  name: 'passthrough',`,
       `  exposes: { './defined': './src/defined.ts' },`,
-      `  shared: share({ 'modern-dep': { singleton: true, requiredVersion: 'auto' } }),`,
+      `  shared: fromPackageJson({ singleton: true, requiredVersion: 'auto' }).only(['modern-dep']),`,
       `});`,
       '',
     ].join('\n')
@@ -252,11 +252,11 @@ function createFixture(root: string): void {
   write(
     'federation.watch.config.mjs',
     [
-      `import { withNativeFederation, share } from '@softarc/native-federation/config';`,
+      `import { withNativeFederation, fromPackageJson } from '@softarc/native-federation/config';`,
       `export default withNativeFederation({`,
       `  name: 'watched',`,
       `  exposes: { './watched': './src/watched.ts' },`,
-      `  shared: share({ 'linked-dep': { singleton: true, requiredVersion: 'auto' } }),`,
+      `  shared: fromPackageJson({ singleton: true, requiredVersion: 'auto' }).only(['linked-dep']),`,
       `  sharedMappings: ['@fixture/ui'],`,
       `});`,
       '',
@@ -298,11 +298,11 @@ function createFixture(root: string): void {
   write(
     'apps/remote/federation.config.mjs',
     [
-      `import { withNativeFederation, share } from '@softarc/native-federation/config';`,
+      `import { withNativeFederation, fromPackageJson } from '@softarc/native-federation/config';`,
       `export default withNativeFederation({`,
       `  name: 'remote',`,
       `  exposes: { './component': './src/component.ts' },`,
-      `  shared: share({ 'tiny-dep': { singleton: true, requiredVersion: 'auto' } }),`,
+      `  shared: fromPackageJson({ singleton: true, requiredVersion: 'auto' }).only(['tiny-dep']),`,
       `  sharedMappings: ['@fixture/ui'],`,
       `});`,
       '',
