@@ -3,13 +3,14 @@ import * as path from 'path';
 import type * as esbuild from 'esbuild';
 import type { EntryPoint } from '@softarc/native-federation/domain';
 
-// `[name]` or `[name]-[hash]`; esbuild hashes are base32 and contain no `-`.
-const SCRIPT_SUFFIX = /(-[A-Z2-7]{8})?\.js$/;
+// esbuild hashes are base32 and contain no `-`.
+const HASHED_SUFFIX = /-[A-Z2-7]{8}\.js$/;
 
 export function entriesByOutputName(
   metafile: esbuild.Metafile | undefined,
   entryPoints: EntryPoint[],
-  workingDir: string
+  workingDir: string,
+  hash: boolean
 ): Map<string, string> {
   const entries = new Map<string, string>();
   if (!metafile) return entries;
@@ -21,7 +22,7 @@ export function entriesByOutputName(
   for (const [outPath, output] of Object.entries(metafile.outputs)) {
     if (!output.entryPoint) continue;
     const fileName = path.basename(outPath);
-    const ep = byOutName.get(fileName.replace(SCRIPT_SUFFIX, ''));
+    const ep = byOutName.get(fileName.replace(hash ? HASHED_SUFFIX : /\.js$/, ''));
     // A lazily imported module carries an entryPoint too and may share an entry's name.
     if (ep && source(ep.fileName) === source(output.entryPoint)) {
       entries.set(fileName, ep.outName);
