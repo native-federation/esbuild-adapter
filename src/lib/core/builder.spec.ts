@@ -500,13 +500,14 @@ describe('runEsBuildBuilder', () => {
   // Core builds exposes[].chunks by reading the files the adapter reports; it only finds them when
   // every split file is reported, flat in outdir, and imported as a relative './x.js'.
   it('maps each expose to the chunks it imports, marking the static ones initial', async () => {
-    const { outDir, remoteEntry, jsFiles } = await build('federation.lazy.config.mjs', 'dist-lazy');
+    const { remoteEntry, jsFiles } = await build('federation.lazy.config.mjs', 'dist-lazy');
 
     const exposed = (key: string) => remoteEntry.exposes.find(e => e.key === key)!;
-    const eagerCode = fs.readFileSync(path.join(outDir, exposed('./eager').outFileName), 'utf-8');
-    const shared = /from\s*["']\.\/(chunk-[A-Z2-7]{8}\.js)["']/.exec(eagerCode)![1]!;
-    const lazy = /import\(\s*["']\.\/(lazy-[A-Z2-7]{8}\.js)["']\s*\)/.exec(eagerCode)![1]!;
-    expect(jsFiles).toEqual(expect.arrayContaining([shared, lazy]));
+    // Names come from the output folder rather than the code, so esbuild's import formatting and
+    // core's denseChunking rewrite can't break the lookup; the exact maps below still prove core
+    // followed the relative imports.
+    const shared = jsFiles.find(f => f.startsWith('chunk-'))!;
+    const lazy = jsFiles.find(f => f.startsWith('lazy-'))!;
 
     const key = (file: string) => '@nf-internal/' + file.replace(/\.js$/, '');
     expect(exposed('./a').chunks).toEqual({ [key(shared)]: { file: shared, initial: true } });
