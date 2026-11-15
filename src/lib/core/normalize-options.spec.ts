@@ -1,11 +1,14 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { getDefaultCachePath } from '@softarc/native-federation/internal';
-import { toDiskCase } from '../utils/disk-case.js';
+import { getDefaultCachePath, toDiskCase } from '@softarc/native-federation/internal';
+import type * as InternalModule from '@softarc/native-federation/internal';
 import { normalizeBuilderOptions } from './normalize-options.js';
 
-vi.mock('../utils/disk-case.js', () => ({ toDiskCase: vi.fn((p: string) => p) }));
+vi.mock('@softarc/native-federation/internal', async importOriginal => ({
+  ...(await importOriginal<typeof InternalModule>()),
+  toDiskCase: vi.fn((p: string) => p),
+}));
 
 describe('normalizeBuilderOptions', () => {
   it('throws when outputPath is missing', () => {
