@@ -147,6 +147,34 @@ function createFixture(root: string): void {
     );
   }
 
+  // An expose that reaches the shared chunk statically and a lazy module through a literal
+  // import(), which esbuild splits into a file of its own.
+  write(
+    'src/lazy.ts',
+    `import { shout } from './common';\nexport const lazy = () => shout('lazy');\n`
+  );
+  write(
+    'src/eager.ts',
+    [
+      `import { shout } from './common';`,
+      `export const eager = () => import('./lazy').then(m => m.lazy() + shout('eager'));`,
+      '',
+    ].join('\n')
+  );
+  write(
+    'federation.lazy.config.mjs',
+    [
+      `import { withNativeFederation } from '@softarc/native-federation/config';`,
+      `export default withNativeFederation({`,
+      `  name: 'lazy',`,
+      `  exposes: { './a': './src/a.ts', './eager': './src/eager.ts' },`,
+      `  shared: {},`,
+      `  chunks: true,`,
+      `});`,
+      '',
+    ].join('\n')
+  );
+
   // An expose named like the chunk esbuild splits out of it, with the default [name]-[hash] names
   // its output and that chunk both come out as chunk-<hash>.js.
   write(
@@ -440,6 +468,7 @@ describe('runEsBuildBuilder', () => {
     );
 
     expect(remoteEntry.chunks).toBeUndefined();
+    expect(remoteEntry.exposes.every(e => !e.chunks)).toBe(true);
     expect(jsFiles.sort()).toEqual(remoteEntry.exposes.map(e => e.outFileName).sort());
     for (const exposed of remoteEntry.exposes) {
       expect(fs.readFileSync(path.join(outDir, exposed.outFileName), 'utf-8')).toContain('!!!');
@@ -466,6 +495,25 @@ describe('runEsBuildBuilder', () => {
       expect(code).not.toContain('!!!');
       expect(code).toContain(chunkImport);
     }
+  });
+
+  // Core builds exposes[].chunks by reading the files the adapter reports; it only finds them when
+  // every split file is reported, flat in outdir, and imported as a relative './x.js'.
+  it('maps each expose to the chunks it imports, marking the static ones initial', async () => {
+    const { outDir, remoteEntry, jsFiles } = await build('federation.lazy.config.mjs', 'dist-lazy');
+
+    const exposed = (key: string) => remoteEntry.exposes.find(e => e.key === key)!;
+    const eagerCode = fs.readFileSync(path.join(outDir, exposed('./eager').outFileName), 'utf-8');
+    const shared = /from\s*["']\.\/(chunk-[A-Z2-7]{8}\.js)["']/.exec(eagerCode)![1]!;
+    const lazy = /import\(\s*["']\.\/(lazy-[A-Z2-7]{8}\.js)["']\s*\)/.exec(eagerCode)![1]!;
+    expect(jsFiles).toEqual(expect.arrayContaining([shared, lazy]));
+
+    const key = (file: string) => '@nf-internal/' + file.replace(/\.js$/, '');
+    expect(exposed('./a').chunks).toEqual({ [key(shared)]: { file: shared, initial: true } });
+    expect(exposed('./eager').chunks).toEqual({
+      [key(shared)]: { file: shared, initial: true },
+      [key(lazy)]: { file: lazy },
+    });
   });
 
   // core#193: without `entry`, core cut `chunk-<hash>.js` at its last `-` and published the split
