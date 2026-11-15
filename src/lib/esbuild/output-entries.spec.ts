@@ -37,7 +37,7 @@ async function build(
     logLevel: 'silent',
     ...options,
   });
-  return { result, entries: entriesByOutputName(result.metafile, entryPoints, ws) };
+  return { result, entries: entriesByOutputName(result.metafile, entryPoints, ws, hash) };
 }
 
 function textOf(result: esbuild.BuildResult, fileName: string) {
@@ -165,6 +165,17 @@ describe('entriesByOutputName', () => {
     expect(textOf(result, outputFor(entries, 'other.js')!)).toContain('// src/other.ts');
   });
 
+  // An unhashed `modal-SETTINGS.js` looks like `modal` plus an esbuild hash.
+  it('matches an unhashed out name that ends like a hash', async () => {
+    writeSources({ 'src/modal.ts': 'export const modal = 1;' });
+
+    const { entries } = await build([{ fileName: 'src/modal.ts', outName: 'modal-SETTINGS.js' }], {
+      hash: false,
+    });
+
+    expect([...entries]).toEqual([['modal-SETTINGS.js', 'modal-SETTINGS.js']]);
+  });
+
   // Core keys every result by `entry` once one sets it, so the unmatched one would be lost.
   it('sets no entry at all when one entry point cannot be matched', async () => {
     writeSources({ 'src/a.ts': 'export const a = 1;' });
@@ -198,10 +209,15 @@ describe('entriesByOutputName', () => {
     const output = { entryPoint: 'src/a.ts', bytes: 0, inputs: {}, imports: [], exports: [] };
     const metafile: esbuild.Metafile = {
       inputs: {},
-      outputs: { 'dist/a.js': output, 'dist/a-AAAAAAAA.js': output },
+      outputs: { 'dist/a-AAAAAAAA.js': output, 'dist/a-BBBBBBBB.js': output },
     };
 
-    const entries = entriesByOutputName(metafile, [{ fileName: 'src/a.ts', outName: 'a.js' }], ws);
+    const entries = entriesByOutputName(
+      metafile,
+      [{ fileName: 'src/a.ts', outName: 'a.js' }],
+      ws,
+      true
+    );
 
     expect(entries.size).toBe(0);
   });
@@ -210,6 +226,6 @@ describe('entriesByOutputName', () => {
   it('sets no entry without a metafile', () => {
     const entryPoints = [{ fileName: 'a.ts', outName: 'a.js' }];
 
-    expect(entriesByOutputName(undefined, entryPoints, ws).size).toBe(0);
+    expect(entriesByOutputName(undefined, entryPoints, ws, true).size).toBe(0);
   });
 });

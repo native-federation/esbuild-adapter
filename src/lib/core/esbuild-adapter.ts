@@ -24,6 +24,7 @@ interface CachedContext {
   outdir: string;
   bundlerCache: EsbuildBundlerCache | undefined;
   workingDir: string;
+  hash: boolean;
 }
 
 export function createEsBuildAdapter(
@@ -75,6 +76,7 @@ export function createEsBuildAdapter(
       // Shared inputs live in node_modules, which the watcher ignores.
       bundlerCache: options.kind === 'shared' ? undefined : options.cache.bundlerCache,
       workingDir,
+      hash: options.hash,
     });
   };
 
@@ -111,7 +113,8 @@ export function createEsBuildAdapter(
     const entryByOutputName = entriesByOutputName(
       result.metafile,
       bundle.entryPoints,
-      bundle.workingDir
+      bundle.workingDir,
+      bundle.hash
     );
     const written = writeResult(result, bundle.outdir, entryByOutputName);
 
